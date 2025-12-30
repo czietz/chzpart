@@ -1,0 +1,572 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+# CHZ Atari Disk Partitioning Tool
+#
+# Copyright (c) 2025 - 2026 Christian Zietz <czietz@gmx.net>
+#
+
+import std/os
+import std/strformat
+import std/strutils
+import std/options
+import std/endians
+import std/random
+import std/assertions
+
+const VersionBanner = "CHZ Atari Disk Partitioning Tool - V. 0.1"
+
+### LIBCMINI / ATARI STUBBING CODE ###
+
+# use disk-image on non-Atari platform
+const useDiskImage {.booldefine.}: bool = not defined(atari)
+
+when useDiskImage:
+    import std/cmdline
+
+when defined(atari):
+    import std/monotimes
+
+# we have to use libcmini's "struct stat" from "ext.h", but Nim
+# will try to use MiNTLib's incompatible definition in "sys/stat.h"
+when defined(libcmini):
+    type
+        Off {.importc: "size_t", header: "<stddef.h>"} = clong
+        Stat {.importc: "struct stat", header: "<ext.h>"} = object
+            st_size: Off
+           
+    proc stat(a1: cstring, a2: var Stat): cint {.importc, header: "<ext.h>".}
+    
+    proc getFileSize(file: string): BiggestInt =
+        var rawInfo: Stat = default(Stat)
+        if stat(file, rawInfo) < 0'i32:
+            raiseOSError(osLastError(), file)
+        rawInfo.st_size
+
+    # don't rely on stat() for checking file existence
+    proc fileExists(file: string): bool =
+        try:
+            let tmpFile = open(file, mode = fmRead)
+            tmpFile.close()
+            return true
+        except IOError:
+            return false
+
+# on Atari, we use Cconrs for better line editing
+when defined(atari):
+    type 
+        Line {.importc: "_CCONLINE", header: "<osbind.h>"} = object
+            maxlen: int
+            actuallen: int
+            buffer: array[255,char]
+    proc Cconrs(line: ptr[Line]) {.importc, header: "<osbind.h>".}
+    proc readInputLine(): string = 
+        var l: Line
+        l.maxlen = l.buffer.len
+        Cconrs(addr l)
+        echo ""
+        if l.actuallen>0:
+            return substr(l.buffer[0..(l.actuallen-1)])
+        else:
+            return ""
+# on other platforms we use rdstdin which uses OS dependent libraries
+else:
+    import std/rdstdin
+    proc readInputLine(): string =
+        readLineFromStdin("")
+
+### XHDI LIBRARY ###
+
+when defined(atari):
+    {.compile: "xhdi.c"}
+
+    proc XHGetVersion(): clong {.importc, header: "xhdi.h"}
+    proc XHInqTarget(major: cushort, minor: cushort, blksize: ptr[culong], flags: ptr[culong], name: cstring): clong {.importc, header: "xhdi.h"}
+    proc XHGetCapacity(major: cushort, minor: cushort, blocks: ptr[culong], blksize: ptr[culong]): clong {.importc, header: "xhdi.h"}
+    proc XHReadWrite(major: cushort, minor: cushort, rwflag: cushort, recno: culong, count: cushort, buf: pointer): clong {.importc, header: "xhdi.h"}
+
+### MENU CODE ###
+
+type
+    MenuItem = object
+        val: int
+        key: char
+        text: string
+        help: string
+
+proc displayMenu(prompt: string, items: openArray[MenuItem], implicitquit = true): Option[int] =
+
+    while true:
+        echo "\n" & prompt & ":"
+        for i in items:
+            echo fmt"[{i.key}] {i.text}"
+            if i.help != "":
+                echo "    " & i.help
+        
+        if implicitquit:
+            echo "[Q] Quit program, discarding changes"
+        
+        stdout.write "["
+        for i in items:
+            stdout.write i.key
+            
+        if implicitquit:
+            stdout.write "Q"
+
+        stdout.write "] > "
+        stdout.flushFile()
+        
+        let choice = readInputLine().strip().toUpperAscii()
+        
+        for i in items:
+            if choice == $(i.key):
+                return some(i.val)
+        
+        if implicitquit:
+            if choice == "Q":
+                return  # without return value
+        
+        echo fmt"Invalid input '{choice}'"
+
+
+proc getNumber(prompt: string, min: int, max: int, implicitquit = true): Option[int] =
+
+    while true:
+        echo "\n" & prompt & ":"
+        
+        stdout.write fmt"[{min}-{max}"
+            
+        if implicitquit:
+            stdout.write ", Q to quit"
+
+        stdout.write "] > "
+        stdout.flushFile()
+        
+        let choice = readInputLine().strip().toUpperAscii()
+        
+        if implicitquit:
+            if choice == "Q":
+                return  # without return value
+        
+        try:
+            var number = choice.parseInt()
+            if (number >= min) and (number <= max):
+                return some(number)
+        except:
+            discard
+        
+        echo fmt"Invalid input '{choice}'"
+
+### DISK WRITE CODE ###
+
+const SectSize = 512
+const SectPerMiB = 1024*1024 div SectSize
+
+type
+    Sector = array[SectSize, uint8]
+    
+    Partition = object
+        start: int
+        length: int
+
+var zeroSector: Sector
+
+when useDiskImage:
+
+    proc getDiskSize(unit: int): int =
+        # write to file
+        let fz = int(getFileSize(paramStr(1)) div SectSize)
+        return fz
+
+    proc getAvailableDisks(menu_disk: var seq[MenuItem]) =
+        # write to file
+        menu_disk.add(MenuItem(val: 0, key: 'A', text: fmt"Disk image '{paramStr(1)}'", help: fmt"Size: {getDiskSize(0) div SectPerMiB} MiB"))
+
+else:   # not useDiskImage
+
+    proc getDiskSize(unit: int): int =
+        var blksize: culong
+        var blocks: culong
+        let retval = XHGetCapacity(cushort(unit), 0, addr blocks, addr blksize)
+        doAssert(blksize == SectSize, "only devices with 512 bytes per sector are supported")
+        if retval == 0:
+            result = int(blocks) * (int(blksize) div SectSize)
+        else:
+            result = 0
+
+    proc getAvailableDisks(menu_disk: var seq[MenuItem]) =
+        const busnames = ["ACSI", "SCSI", "IDE", "3", "USB"]
+        var 
+            cnt = 0
+            blksize: culong
+            flags: culong
+            name = newString(33)
+        let units = {0..19,  32..39}
+        for unit in units:
+            let retval = XHInqTarget(cushort(unit), 0, addr blksize, addr flags, name.cstring)
+            if retval == 0:
+                let bus = unit div 8
+                let dev = unit mod 8
+                let siz = getDiskSize(unit) div SectPerMiB
+                menu_disk.add(MenuItem(val: unit, key: chr(ord('A')+cnt), text: $(name.cstring), help: fmt"Bus: {busnames[bus]}. Device: {dev}. Size: {siz} MiB"))
+                cnt = cnt+1
+
+
+proc diskWrite(unit: int, sectNum: int, sectData: ptr[Sector], partition: Option[Partition] = none(Partition)) =
+
+    var realSectNum: int
+    if partition.isSome:
+        let part = partition.get()
+        realSectNum = sectNum + part.start
+        doAssert(sectNum < part.length, "attempted to write outside of partition")
+    else:
+        realSectNum = sectNum
+    
+    when useDiskImage:
+        # write to file
+        let tmpFile = open(paramStr(1), mode = fmReadWriteExisting)
+        tmpFile.setFilePos(realSectNum * SectSize)
+        let numWritten = tmpFile.writeBuffer(sectData, SectSize)
+        if numWritten != SectSize:
+            raise newException(IOError, "could not write to file")
+        tmpFile.close()
+    else: # not useDiskImage
+        let retval = XHReadWrite(cushort(unit), 0, 1, culong(realSectNum), 1, sectData)
+        if retval != 0:
+            raise newException(IOError, "could not write to disk")
+
+### PARTITON TABLE CODE ###
+
+type
+    DOSPart {.packed.} = object
+        bootable:   uint8 = 0
+        chs_start:  array[3,uint8]
+        part_type:  uint8 = 0
+        chs_end:    array[3,uint8]
+        lba_start:  uint32
+        lba_size:   uint32
+
+    DOSMBR {.packed.} = object
+        filler1:    array[440,uint8]
+        signature:  uint32
+        filler2:    uint16 = 0
+        parttable:  array[4,DOSPart]
+        magic:      array[2,uint8] = [0x55, 0xaa]
+    
+    AtariPart {.packed.} = object
+        active:     uint8 = 0
+        part_type:  array[3,char]
+        lba_start:  uint32
+        lba_size:   uint32
+        
+    AtariMBR {.packed.} = object
+        filler1:    array[448,uint8]
+        checksum:   uint16
+        disk_size:  uint32
+        parttable:  array[4,AtariPart]
+        badsect:    uint32  # not used
+        badsize:    uint32  # not used
+        filler2:    uint16
+
+proc createMBR(unit: int, parts: openArray[Partition], diskSize: int, atari = false) =
+
+    var MBR: ptr[Sector]
+
+    if not atari:
+        # DOS-style
+        var m = DOSMBR()
+        m.signature = rand(uint32)    # don't bother with endianness
+        for k in 0..(parts.len-1):
+            m.parttable[k].part_type = 0x06 # FAT16
+            m.parttable[k].lba_start = uint32(parts[k].start)
+            m.parttable[k].lba_size = uint32(parts[k].length)
+            littleEndian32(addr m.parttable[k].lba_start, addr m.parttable[k].lba_start)
+            littleEndian32(addr m.parttable[k].lba_size, addr m.parttable[k].lba_size)
+            # don't bother with CHS
+            m.parttable[k].chs_start = [0xff,0xff,0xff]
+            m.parttable[k].chs_end = [0xff,0xff,0xff]
+        MBR = cast[ptr[Sector]](addr m)
+    else:
+        # Atari-style
+        var m = AtariMBR()
+        m.disk_size = uint32(diskSize)
+        bigEndian32(addr m.disk_size, addr m.disk_size)
+        for k in 0..(parts.len-1):
+            m.parttable[k].active = 1
+            if parts[k].length >= 16*SectPerMiB:
+                m.parttable[k].part_type = ['B','G','M']
+            else:
+                m.parttable[k].part_type = ['G','E','M']
+            m.parttable[k].lba_start = uint32(parts[k].start)
+            m.parttable[k].lba_size = uint32(parts[k].length)
+            bigEndian32(addr m.parttable[k].lba_start, addr m.parttable[k].lba_start)
+            bigEndian32(addr m.parttable[k].lba_size, addr m.parttable[k].lba_size)
+        
+        # calculate checksum so that MBR is NOT bootable
+        let MBR2 = cast[array[256,uint16]](m)
+        var sum: uint16 = 0
+        for k in MBR2:
+            var word: uint16
+            bigEndian16(addr word, addr k)
+            sum = sum + word
+        m.checksum = 0xFFFF'u16 - sum   # 0x1234 would make it bootable
+        bigEndian16(addr m.checksum, addr m.checksum)
+        
+        MBR = cast[ptr[Sector]](addr m)
+
+    diskWrite(unit, 0, MBR, none(Partition))
+
+
+### FAT FILE SYSTEM CODE ###
+
+type
+    FATBoot {.packed.} = object
+        bootjmp:    array[3,uint8] = [0xeb, 0x3c, 0x90]
+        oemname:    array[8,char] = ['C','H','Z','P','T','5','.','0']
+        bps:        uint16 = SectSize
+        spc:        uint8
+        reserved:   uint16 = 1
+        numfat:     uint8 = 2
+        numroot:    uint16 = 256
+        numsect:    uint16 = 0
+        mediatype:  uint8 = 0xF8
+        spf:        uint16
+        spt:        uint16 = 31  # dummy
+        numhead:    uint16 = 255  # dummy
+        hidden32:   uint32
+        numsect32:  uint32 = 0
+        disknum:    uint8 = 0x80
+        dirty:      uint8 = 0
+        extsig:     uint8 = 0x29
+        volid32:    uint32
+        volname:    array[11,char] = ['N','O',' ','N','A','M','E',' ',' ',' ',' ']
+        fstype:     array[8,char] = ['F','A','T','1','6',' ',' ',' ']
+        filler:     array[448,uint8]
+        magic:      array[2,uint8] = [0x55, 0xaa]
+        
+proc createFAT16(unit:int, part: Partition, atari = false) =
+    var b = FATBoot()
+    
+    # find the smallest cluster size that results in max amount of clusters
+    var clustersize = 2
+    var maxclusters = 65524 # according to MS FAT spec
+    if atari:
+        maxclusters = 32766 # according to HDDRIVER
+    while part.length div clustersize > maxclusters:
+        clustersize = clustersize shl 1
+
+    # fill in sector and cluster size
+    var logsec = 1
+    if atari:
+        # Atari style: larger logical sectors
+        b.spc = 2
+        logsec = clustersize div 2
+        b.bps = uint16(logsec * SectSize)
+    else:
+        # MS-DOS style: larger sector-per-cluster number
+        b.spc = uint8(clustersize)
+    
+    # fill in total number of sectors
+    let partsect = part.length div logsec
+    if partsect < 65536:
+        b.numsect = uint16(partsect)
+    else:
+        b.numsect32 = uint32(partsect)
+    
+    # fill in hidden sectors (physical! sectors before partition start)
+    b.hidden32 = uint32(part.start)
+    
+    # FAT size calculation in physical! sectors (formulas taken from MS FAT spec)
+    let rootdirsect = ((int(b.numroot) * 32) + (SectSize - 1)) div SectSize
+    let tmpval1 = part.length - int(b.reserved) - rootdirsect
+    let tmpval2 = (256 * clustersize) + int(b.numfat) # TODO: check why + numfat ?
+    let fatsz = (tmpval1 + (tmpval2-1)) div tmpval2
+    b.spf = uint16(fatsz)
+    
+    # fixup for Atari
+    if atari:
+        b.spf = uint16((fatsz + (logsec-1)) div logsec)
+    
+    # TODO: fill volume ID according to spec with creation date
+    b.volid32 = rand(uint32)
+    
+    # safety check
+    if not atari:
+        doAssert(b.numfat == 2, "invalid number of FATs")
+        doAssert((logsec == 1) and (int(b.bps) == 512), "invalid logical sector size")
+        doAssert(clustersize <= 64, "invalid cluster size")
+    else:
+        # TOS 1.04 and above
+        doAssert(b.numfat == 2, "invalid number of FATs")
+        doAssert(b.spc == 2, "invalid number of sectors per cluster")
+        doAssert(logsec <= 16, "logical sector size too large")
+        doAssert(b.numsect32 == 0, "Atari partition with more than 65535 log. sectors")
+        doAssert(int(b.numroot) <= 1008, "root directory too large")
+    
+    # create FATs in physical sectors
+    var fat: Sector
+    let realfatsz = int(b.spf) * logsec
+    let fat1start = int(b.reserved) * logsec
+    let fat2start = fat1start + realfatsz
+    var rootdirstart = fat2start # updated later!
+    fat[0] = b.mediatype
+    fat[1] = 0xff
+    fat[2] = 0xff
+    fat[3] = 0xff
+    diskWrite(unit, fat1start, addr fat, some(part))
+    for k in 1..(realfatsz-1):
+        diskWrite(unit, fat1start+k, addr zeroSector, some(part))
+    if b.numfat == 2:
+        rootdirstart = fat2start + realfatsz
+        diskWrite(unit, fat2start, addr fat, some(part))
+        for k in 1..(realfatsz-1):
+            diskWrite(unit, fat2start+k, addr zeroSector, some(part))
+    
+    # zero root directory
+    for k in 0..(rootdirsect-1):
+        diskWrite(unit, rootdirstart+k, addr zeroSector, some(part))
+    
+    # convert all fields to littleEndian
+    littleEndian16(addr b.bps, addr b.bps)
+    littleEndian16(addr b.reserved, addr b.reserved)
+    littleEndian16(addr b.numroot, addr b.numroot)
+    littleEndian16(addr b.numsect, addr b.numsect)
+    littleEndian16(addr b.spf, addr b.spf)
+    littleEndian16(addr b.spt, addr b.spt)
+    littleEndian16(addr b.numhead, addr b.numhead)
+    
+    littleEndian32(addr b.hidden32, addr b.hidden32)
+    littleEndian32(addr b.numsect32, addr b.numsect32)
+    littleEndian32(addr b.volid32, addr b.volid32)
+    
+    # write boot sectors
+    let s = cast[ptr[Sector]](addr b)
+    diskWrite(unit, 0, s, some(part))
+
+### MAIN FUNCTION CODE ###
+
+type PartitionType = enum TypeDOS, TypeAtari
+
+echo VersionBanner
+echo ""
+
+when defined(atari):
+    # Atari does not have a system RNG for seeding
+    randomize(getMonoTime().ticks)
+else:
+    randomize()
+
+when useDiskImage:
+    #  Write to file
+    if paramCount() < 1:
+        let exename = splitPath(getAppFilename()).tail
+        echo "Usage:"
+        echo fmt"To use an existing image: {exename} disk_image.img"
+        echo fmt"To create a new image:    {exename} disk_image.img size_in_MiB"
+        quit(1)
+
+    if paramCount() == 1:
+        if not fileExists(paramStr(1)):
+            echo fmt"Cannot open disk image file '{paramStr(1)}'!"
+            quit(1)
+            
+    if paramCount() > 1:
+        if fileExists(paramStr(1)):
+            echo fmt"Disk image file '{paramStr(1)}' already exists!"
+            quit(1)
+            
+        # write to file
+        var fileSize: int
+        try:
+            fileSize = parseInt(paramStr(2)) * 1024*1024
+        except ValueError:
+            echo fmt"Illegal size '{paramStr(2)}'!"
+            quit(1)
+        
+        let tmpFile = open(paramStr(1), mode = fmWrite)
+        tmpFile.setFilePos(fileSize - SectSize)
+        let numWritten = tmpFile.writeBuffer(addr zeroSector, SectSize)
+        if numWritten != SectSize:
+            raise newException(IOError, "could not write to file")
+        tmpFile.close()
+        
+when not useDiskImage:
+    # Check XHDI is available
+    let xhdiver = XHGetVersion()
+    if xhdiver < 0x110:
+        echo "XHDI is required!"
+        echo "XHDI is available, e.g., under EmuTOS PRG and ROMs sized 256k and above."
+        echo "Press Enter to exit."
+        discard readInputLine()
+        quit(1)
+
+var menu_disk: seq[MenuItem]
+getAvailableDisks(menu_disk)
+
+if menu_disk.len == 0:
+    echo "No hard disks found!"
+    echo "Press Enter to exit."
+    discard readInputLine()
+    quit(1)
+
+let unitChoice = displayMenu("Select hard disk", menu_disk)
+if unitChoice.isNone:
+    quit(1)
+let unit = unitChoice.get()
+
+let diskSize = getDiskSize(unit)
+
+let menu_type = @[MenuItem(val: ord(TypeDOS), key: 'M', text: "MS-DOS", help: "Compatible with EmuTOS, Windows, Linux, macOS"),
+                  MenuItem(val: ord(TypeAtari), key: 'A', text: "Atari", help: "Compatible with EmuTOS, Atari TOS 1.04 and above")]
+
+let partChoice = displayMenu("Select partition type", menu_type)
+if partChoice.isNone:
+    quit(1)
+let partType = PartitionType(partChoice.get())
+
+let numChoice = getNumber("Number of partitions", 1, 4)
+if numChoice.isNone:
+    quit(1)
+let numPart = numChoice.get()
+
+# Ask the user for partition sizes
+var startPart = 1 # first sector is for MBR
+var parts: seq[Partition]
+for k in 1..numPart:
+    const partWord = ["1st","2nd","3rd","4th"]
+    const minSize = 5 # to avoid disks with less than 4085 clusters
+    
+    # maximum size for this partition
+    var maxSize = ((diskSize - startPart) div SectPerMiB) - (minSize * (numPart-k))
+    if (partType == TypeAtari) and (maxSize > 511):
+        maxSize = 511
+    if (partType == TypeDOS) and (maxSize > 2047):
+        maxSize = 2047
+        
+    let sizeChoice = getNumber("Size of " & partWord[k-1] & " partition in MiB", minSize, maxSize)
+    if sizeChoice.isNone:
+        quit(1)
+    let sizeSect = sizeChoice.get() * SectPerMiB
+    let part = Partition(start: startPart, length: sizeSect)
+    parts.add(part)
+    startPart = startPart + sizeSect
+
+# Ask the user to confirm partition creation
+let menu_confirm = @[MenuItem(val: int(true), key: 'Y', text: "Partition disk", help: "This deletes the existing disk content!"),
+                     MenuItem(val: int(false), key: 'N', text: "Discard changes and exit program")]
+let confirmChoice = displayMenu("Confirm disk partitioning", menu_confirm, implicitquit = false)
+if confirmChoice.isNone or not bool(confirmChoice.get()):
+    quit(0)
+
+stdout.write "Partitioning disk... "
+stdout.flushFile()
+
+# Partiton the disk and create file systems
+createMBR(unit, parts, diskSize, atari = (partType == TypeAtari))
+for part in parts:
+    createFAT16(unit, part, atari = (partType == TypeAtari))
+
+echo "done!"
+
+when not useDiskImage:
+    echo "*** Reboot your system NOW! ***"
+    discard readInputLine()
