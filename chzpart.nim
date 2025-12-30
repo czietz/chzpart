@@ -13,7 +13,10 @@ import std/endians
 import std/random
 import std/assertions
 
-const VersionBanner = "CHZ Atari Disk Partitioning Tool - V. 0.1"
+const VersionBanner   = "CHZ Atari Disk Partitioning Tool - V. 0.1"
+const CopyrightBanner = "(C) 2026 Christian Zietz <czietz@gmx.net>\n" &
+                        "This program is free software; you can redistribute it and/or modify\n" &
+                        "it under the terms of the GNU General Public License."
 
 ### LIBCMINI / ATARI STUBBING CODE ###
 
@@ -480,6 +483,7 @@ proc createFAT16(unit:int, part: Partition, atari: bool, byteswap: bool) =
 type PartitionType = enum TypeDOS, TypeAtari
 
 echo VersionBanner
+echo CopyrightBanner
 echo ""
 
 when defined(atari):
