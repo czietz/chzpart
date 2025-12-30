@@ -52,3 +52,12 @@ jobs:
         nim c -d:release chzpart.nim
         nim c -d:mingw -d:release chzpart.nim
         nim c --cpu:arm64 --out:chzpart-arm64 -d:release chzpart.nim
+    - name: Save binaries as build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: chzpart-${{github.job}}
+        path: |
+          chzpart.tos
+          chzpart
+          chzpart.exe
+          chzpart-arm64
