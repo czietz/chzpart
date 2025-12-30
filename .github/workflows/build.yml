@@ -1,0 +1,38 @@
+name: Automatic snapshot build
+
+on:
+  push:
+    branches: [ master ]
+
+jobs:
+  buildall:
+
+    runs-on: ubuntu-24.04
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install DEB packages
+      run: |
+        sudo apt-get update
+        sudo apt-get install gcc-mingw-w64 zip
+    - name: Install mintelf toolchain
+      run: |
+        pwd
+        mkdir mintelf
+        cd mintelf
+        wget -q -O - https://tho-otto.de/snapshots/binutils/binutils-mintelf-current.tar.bz2 | sudo tar xjf -
+        wget -q -O - https://tho-otto.de/snapshots/gcc/gcc-mintelf-current.tar.bz2 | sudo tar xjf -
+        pushd .
+        mkdir -p usr/m68k-atari-mintelf/sys-root
+        cd usr/m68k-atari-mintelf/sys-root
+        wget -q -O - https://tho-otto.de/snapshots/mintlib/mintlib-mintelf-latest.tar.bz2 | sudo tar xjf -
+        popd
+        echo "$(pwd)/usr/bin" >> $GITHUB_PATH
+    - name: Install and build libcmini
+      run: |
+        pwd
+        git clone https://github.com/freemint/libcmini.git
+        cd libcmini
+        # always use the same (known working) version
+        git checkout 42a73ab2bd44094c1c2786e7347ba6e1b3be146d
+        make COMPILE_ELF=Y ONLY_68K=Y dirs libs startups
