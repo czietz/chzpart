@@ -14,7 +14,7 @@ jobs:
     - name: Install DEB packages
       run: |
         sudo apt-get update
-        sudo apt-get install gcc-mingw-w64 zip
+        sudo apt-get install gcc-mingw-w64 gcc-aarch64-linux-gnu zip
     - name: Install mintelf toolchain
       run: |
         pwd
@@ -26,6 +26,7 @@ jobs:
         mkdir -p usr/m68k-atari-mintelf/sys-root
         cd usr/m68k-atari-mintelf/sys-root
         wget -q -O - https://tho-otto.de/snapshots/mintlib/mintlib-mintelf-latest.tar.bz2 | sudo tar xjf -
+        wget -q -O - https://tho-otto.de/snapshots/fdlibm/fdlibm-mintelf-latest.tar.bz2 | sudo tar xjf -
         popd
         echo "$(pwd)/usr/bin" >> $GITHUB_PATH
     - name: Install and build libcmini
@@ -50,3 +51,4 @@ jobs:
         nim c --cpu:m68k --os:atari --out:chzpart.tos -d:libcmini -d:mintelf -d:release chzpart.nim
         nim c -d:release chzpart.nim
         nim c -d:mingw -d:release chzpart.nim
+        nim c --cpu:arm64 --out:chzpart-arm64 -d:release chzpart.nim
