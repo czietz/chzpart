@@ -74,6 +74,32 @@ else:
     proc readInputLine(): string =
         readLineFromStdin("")
 
+# test if we run under EmuTOS
+when defined(atari):
+    
+    import std/volatile
+
+    const
+        SysBase = 0x4f2
+        EtosMagic = 0x45544f53 # _ETOS
+    proc Super(val: clong): clong {.header: "<osbind.h>".}
+    proc SuperToUser(val: clong)  {.header: "<osbind.h>".}
+
+    proc checkEmuTOS(): bool =
+        let old_ssp = Super(0)
+        # Use a volatileLoad to make sure that value
+        # is really being read between the Super/SuperToUser calls.
+        let osheader = volatileLoad(cast[ptr clong](SysBase))
+        let rsvd = volatileLoad(cast[ptr clong](osheader+0x2c))
+        SuperToUser(old_ssp)
+        return (rsvd == EtosMagic)
+    
+    # cache result
+    proc isEmuTOS(): bool = 
+        var check {.global.} = checkEmuTOS()
+        return check
+
+
 ### XHDI LIBRARY ###
 
 when defined(atari):
@@ -211,7 +237,7 @@ else:   # not useDiskImage
                 cnt = cnt+1
 
 
-proc diskWrite(unit: int, sectNum: int, sectData: ptr[Sector], partition: Option[Partition] = none(Partition)) =
+proc diskWrite(unit: int, sectNum: int, sectData: ptr[Sector], byteswap: bool, partition: Option[Partition] = none(Partition)) =
 
     var realSectNum: int
     if partition.isSome:
@@ -220,6 +246,11 @@ proc diskWrite(unit: int, sectNum: int, sectData: ptr[Sector], partition: Option
         doAssert(sectNum < part.length, "attempted to write outside of partition")
     else:
         realSectNum = sectNum
+    
+    if byteswap:
+        var sectTemp = cast[ptr array[SectSize div 2,uint16]](sectData)
+        for k in 0..((SectSize div 2)-1):
+            swapEndian16(addr sectTemp[k], addr sectTemp[k])
     
     when useDiskImage:
         # write to file
@@ -230,7 +261,9 @@ proc diskWrite(unit: int, sectNum: int, sectData: ptr[Sector], partition: Option
             raise newException(IOError, "could not write to file")
         tmpFile.close()
     else: # not useDiskImage
-        let retval = XHReadWrite(cushort(unit), 0, 1, culong(realSectNum), 1, sectData)
+        # on EmuTOS one can bypass potential additional byte-swapping by the disk driver
+        let rwflag = (if isEmuTOS(): (0x80 + 1) else: 1)
+        let retval = XHReadWrite(cushort(unit), 0, cushort(rwflag), culong(realSectNum), 1, sectData)
         if retval != 0:
             raise newException(IOError, "could not write to disk")
 
@@ -267,7 +300,7 @@ type
         badsize:    uint32  # not used
         filler2:    uint16
 
-proc createMBR(unit: int, parts: openArray[Partition], diskSize: int, atari = false) =
+proc createMBR(unit: int, parts: openArray[Partition], diskSize: int, atari: bool, byteswap: bool) =
 
     var MBR: ptr[Sector]
 
@@ -313,7 +346,7 @@ proc createMBR(unit: int, parts: openArray[Partition], diskSize: int, atari = fa
         
         MBR = cast[ptr[Sector]](addr m)
 
-    diskWrite(unit, 0, MBR, none(Partition))
+    diskWrite(unit, 0, MBR, byteswap)
 
 
 ### FAT FILE SYSTEM CODE ###
@@ -343,7 +376,7 @@ type
         filler:     array[448,uint8]
         magic:      array[2,uint8] = [0x55, 0xaa]
         
-proc createFAT16(unit:int, part: Partition, atari = false) =
+proc createFAT16(unit:int, part: Partition, atari: bool, byteswap: bool) =
     var b = FATBoot()
     
     # find the smallest cluster size that results in max amount of clusters
@@ -412,18 +445,18 @@ proc createFAT16(unit:int, part: Partition, atari = false) =
     fat[1] = 0xff
     fat[2] = 0xff
     fat[3] = 0xff
-    diskWrite(unit, fat1start, addr fat, some(part))
+    diskWrite(unit, fat1start, addr fat, byteswap, some(part))
     for k in 1..(realfatsz-1):
-        diskWrite(unit, fat1start+k, addr zeroSector, some(part))
+        diskWrite(unit, fat1start+k, addr zeroSector, byteswap, some(part))
     if b.numfat == 2:
         rootdirstart = fat2start + realfatsz
-        diskWrite(unit, fat2start, addr fat, some(part))
+        diskWrite(unit, fat2start, addr fat, byteswap, some(part))
         for k in 1..(realfatsz-1):
-            diskWrite(unit, fat2start+k, addr zeroSector, some(part))
+            diskWrite(unit, fat2start+k, addr zeroSector, byteswap,some(part))
     
     # zero root directory
     for k in 0..(rootdirsect-1):
-        diskWrite(unit, rootdirstart+k, addr zeroSector, some(part))
+        diskWrite(unit, rootdirstart+k, addr zeroSector, byteswap, some(part))
     
     # convert all fields to littleEndian
     littleEndian16(addr b.bps, addr b.bps)
@@ -440,7 +473,7 @@ proc createFAT16(unit:int, part: Partition, atari = false) =
     
     # write boot sectors
     let s = cast[ptr[Sector]](addr b)
-    diskWrite(unit, 0, s, some(part))
+    diskWrite(unit, 0, s, byteswap, some(part))
 
 ### MAIN FUNCTION CODE ###
 
@@ -513,8 +546,6 @@ if unitChoice.isNone:
     quit(1)
 let unit = unitChoice.get()
 
-let diskSize = getDiskSize(unit)
-
 let menu_type = @[MenuItem(val: ord(TypeDOS), key: 'M', text: "MS-DOS", help: "Compatible with EmuTOS, Windows, Linux, macOS"),
                   MenuItem(val: ord(TypeAtari), key: 'A', text: "Atari", help: "Compatible with EmuTOS, Atari TOS 1.04 and above")]
 
@@ -523,10 +554,26 @@ if partChoice.isNone:
     quit(1)
 let partType = PartitionType(partChoice.get())
 
+# under EmuTOS one can control byte-swapping by the disk driver during XHReadWrite
+# ... so the byte-swapping is entirely under control of this program and one can
+# ... ask the user (in case of IDE disks) if they like byte-swapping or not
+var swapBytes = false
+when not useDiskImage:
+    let bus = unit div 8
+    if isEmuTOS() and (partType == TypeDOS) and (bus == 2): # IDE bus
+        let menu_swap = @[MenuItem(val: int(true), key: 'Y', text: "Activate byte swapping", help: "On 'dumb' IDE interfaces, this facilitates data exchange"),
+                          MenuItem(val: int(false), key: 'N', text: "Deactivate byte swapping", help: "Recommended for best performance")]
+        let swapChoice = displayMenu("IDE byte-swapping", menu_swap)
+        if swapChoice.isNone:
+            quit(1)
+        swapBytes = bool(swapChoice.get())
+
 let numChoice = getNumber("Number of partitions", 1, 4)
 if numChoice.isNone:
     quit(1)
 let numPart = numChoice.get()
+
+let diskSize = getDiskSize(unit)
 
 # Ask the user for partition sizes
 var startPart = 1 # first sector is for MBR
@@ -561,9 +608,9 @@ stdout.write "Partitioning disk... "
 stdout.flushFile()
 
 # Partiton the disk and create file systems
-createMBR(unit, parts, diskSize, atari = (partType == TypeAtari))
+createMBR(unit, parts, diskSize, atari = (partType == TypeAtari), swapBytes)
 for part in parts:
-    createFAT16(unit, part, atari = (partType == TypeAtari))
+    createFAT16(unit, part, atari = (partType == TypeAtari), swapBytes)
 
 echo "done!"
 
