@@ -1,0 +1,13 @@
+diff --git a/Makefile b/Makefile
+index d6d83f5..96d4c51 100644
+--- a/Makefile
++++ b/Makefile
+@@ -53,7 +53,7 @@ INCLUDE=-Iinclude
+ ifneq (,$(filter $(STDIO_WITH_LONG_LONG),Y yes))
+ 	CFLAGS+=-DSTDIO_WITH_LONG_LONG
+ endif
+-
++CFLAGS+=-DSTDIO_MAP_NEWLINE
+ 
+ STARTUP= \
+ 	$(SRCDIR)/crt0.S

@@ -36,6 +36,8 @@ jobs:
         cd libcmini
         # always use the same (known working) version
         git checkout 42a73ab2bd44094c1c2786e7347ba6e1b3be146d
+        # apply patch to map LF to CR+LF
+        git apply < ../libcmini_map_newlines.patch
         make COMPILE_ELF=Y ONLY_68K=Y dirs libs startups
     - name: Install and build Nim
       run: |
