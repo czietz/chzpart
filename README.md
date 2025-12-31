@@ -21,12 +21,13 @@ The tool allows you to create a new partition layout and initialize partitions w
 
 * Atari ST/STE/TT/Falcon or compatible or Firebee
 * **XHDI support is required**
-* Available in EmuTOS (PRG version and ROM versions sized **256 KiB and above**)
+  * Available in EmuTOS (PRG version and ROM versions sized **256 KiB and above**)
+
 * Compatible storage (ACSI, IDE, SCSI, etc., depending on your setup)
 
 ### On Non-Atari Systems
 
-* The tool operates on **disk image files** instead of real hardware
+* The tool operates on **disk image files** instead of real hard disks
 * Useful for preparing images for emulators such as Hatari
 
 ---
@@ -113,7 +114,7 @@ You may be asked whether to enable **byte swapping** for IDE hard disks:
 
 ⚠️ Always choose **no** for “smart” IDE interfaces that have hardware byte swapping.
 
-Note: This option is only available when partitioning an IDE hard disk, and only when running under EmuTOS.
+Note: This option is only available when partitioning an IDE hard disk with MS-DOS partitions, and only when running under EmuTOS.
 
 ---
 
@@ -176,7 +177,7 @@ A progress message is shown while the disk is being partitioned.
   * Selected disk
   * Partition sizes
   * Partition type
-* When working on Atari systems, **reboot** after the tool has finished to apply the new partitioning
+* When working on Atari systems, **reboot** after the program has finished to apply the new partitioning
 
 ---
 
@@ -186,4 +187,5 @@ This program is **free software**, distributed under the **GNU General Public Li
 
 You are free to use, modify, and redistribute it under the terms of that license.
 
+Note: As stated in the license terms, this program is provided “AS IS” WITHOUT WARRANTY OF ANY KIND.
 
