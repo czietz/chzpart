@@ -388,9 +388,11 @@ proc createFAT16(unit:int, part: Partition, atari: bool, byteswap: bool) =
 
     # find the smallest cluster size that results in max amount of clusters
     var clustersize = 2
-    var maxclusters = 65524 # according to MS FAT spec
-    if atari:
-        maxclusters = 32766 # according to HDDRIVER
+    let maxclusters = (if not atari:
+                         65524 # according to MS FAT spec
+                       else:
+                         32766 # according to HDDRIVER
+                      )
     while part.length div clustersize > maxclusters:
         clustersize = clustersize shl 1
 
