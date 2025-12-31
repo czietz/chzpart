@@ -31,7 +31,7 @@ when useDiskImage:
     import std/cmdline
 
 when defined(atari):
-    import std/monotimes
+    proc Tgettime(): clong {.header: "<osbind.h>".}
 
 # we have to use libcmini's "struct stat" from "ext.h", but Nim
 # will try to use MiNTLib's incompatible definition in "sys/stat.h"
@@ -494,7 +494,7 @@ echo ""
 
 when defined(atari):
     # Atari does not have a system RNG for seeding
-    randomize(getMonoTime().ticks)
+    randomize(Tgettime())
 else:
     randomize()
 
