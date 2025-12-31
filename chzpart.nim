@@ -14,6 +14,10 @@ import std/random
 import std/assertions
 
 const VersionBanner   = "CHZ Atari Disk Partitioning Tool - V. 0.1"
+when defined(avoidGit):
+    const GitBanner   = ""
+else:
+    const GitBanner   = " (" & staticExec("git rev-parse --verify --short HEAD") & ")"
 const CopyrightBanner = "(C) 2026 Christian Zietz <czietz@gmx.net>\n" &
                         "This program is free software; you can redistribute it and/or modify\n" &
                         "it under the terms of the GNU General Public License."
@@ -482,7 +486,7 @@ proc createFAT16(unit:int, part: Partition, atari: bool, byteswap: bool) =
 
 type PartitionType = enum TypeDOS, TypeAtari
 
-echo VersionBanner
+echo VersionBanner & GitBanner
 echo CopyrightBanner
 echo ""
 
