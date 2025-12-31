@@ -223,13 +223,13 @@ else:   # not useDiskImage
             result = 0
 
     proc getAvailableDisks(menu_disk: var seq[MenuItem]) =
-        const busnames = ["ACSI", "SCSI", "IDE", "3", "USB"]
+        const busnames = ["ACSI", "SCSI", "IDE", "SD-Card", "USB"]
         var
             cnt = 0
             blksize: culong
             flags: culong
             name = newString(33)
-        let units = {0..19,  32..39}
+        let units = {0..19, 24, 32..39}
         for unit in units:
             let retval = XHInqTarget(cushort(unit), 0, addr blksize, addr flags, name.cstring)
             if retval == 0:
