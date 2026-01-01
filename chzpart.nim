@@ -543,8 +543,8 @@ proc createFAT16(unit:int, part: Partition, atari: bool, byteswap: bool) =
     littleEndian32(addr b.volid32, addr b.volid32)
 
     # write boot sectors
-    let s = cast[ptr[Sector]](addr b)
-    diskWrite(unit, 0, s, byteswap, some(part))
+    let s = cast[Sector](b)
+    diskWrite(unit, 0, addr s, byteswap, some(part))
 
 ### MAIN FUNCTION CODE ###
 
