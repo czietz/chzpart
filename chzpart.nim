@@ -307,6 +307,30 @@ type
         badsize:    uint32  # not used
         filler2:    uint16
 
+proc fillDOSPart(p: var DOSPart, start: int, length: int, extended: bool = false) =
+    p.part_type = (if not extended: 0x06 else: 0x05) # FAT16 or extended partition
+    p.lba_start = uint32(start)
+    p.lba_size = uint32(length)
+    littleEndian32(addr p.lba_start, addr p.lba_start)
+    littleEndian32(addr p.lba_size, addr p.lba_size)
+    # don't bother with CHS
+    p.chs_start = [0xff,0xff,0xff]
+    p.chs_end = [0xff,0xff,0xff]
+
+proc fillAtariPart(p: var AtariPart, start: int, length: int, extended: bool = false) =
+    p.active = 1
+    if extended:
+        p.part_type = ['X','G','M']
+    else:
+        if length >= 16*SectPerMiB:
+            p.part_type = ['B','G','M']
+        else:
+            p.part_type = ['G','E','M']
+    p.lba_start = uint32(start)
+    p.lba_size = uint32(length)
+    bigEndian32(addr p.lba_start, addr p.lba_start)
+    bigEndian32(addr p.lba_size, addr p.lba_size)
+
 proc createMBR(unit: int, parts: var openArray[Partition], diskSize: int, atari: bool, byteswap: bool) =
 
     var MBR: Sector
@@ -322,23 +346,10 @@ proc createMBR(unit: int, parts: var openArray[Partition], diskSize: int, atari:
         var m = DOSMBR()
         m.signature = rand(uint32)    # don't bother with endianness
         for k in 0..(numPrimary-1):
-            m.parttable[k].part_type = 0x06 # FAT16
-            m.parttable[k].lba_start = uint32(parts[k].start)
-            m.parttable[k].lba_size = uint32(parts[k].length)
-            littleEndian32(addr m.parttable[k].lba_start, addr m.parttable[k].lba_start)
-            littleEndian32(addr m.parttable[k].lba_size, addr m.parttable[k].lba_size)
-            # don't bother with CHS
-            m.parttable[k].chs_start = [0xff,0xff,0xff]
-            m.parttable[k].chs_end = [0xff,0xff,0xff]
+            fillDOSPart(m.parttable[k], start=parts[k].start, length=parts[k].length)
         if doExtended:
-            m.parttable[3].part_type = 0x05 # Extended partition
-            m.parttable[3].lba_start = uint32(parts[3].start)
-            m.parttable[3].lba_size = uint32(diskSize - parts[3].start) # spans remaining length of disk
-            littleEndian32(addr m.parttable[3].lba_start, addr m.parttable[3].lba_start)
-            littleEndian32(addr m.parttable[3].lba_size, addr m.parttable[3].lba_size)
-            # don't bother with CHS
-            m.parttable[3].chs_start = [0xff,0xff,0xff]
-            m.parttable[3].chs_end = [0xff,0xff,0xff]
+            # spans the entire remaining length of the disk
+            fillDOSPart(m.parttable[3], start=parts[3].start, length=diskSize - parts[3].start, extended=true)
 
         MBR = cast[Sector](m)
     else:
@@ -347,22 +358,10 @@ proc createMBR(unit: int, parts: var openArray[Partition], diskSize: int, atari:
         m.disk_size = uint32(diskSize)
         bigEndian32(addr m.disk_size, addr m.disk_size)
         for k in 0..(numPrimary-1):
-            m.parttable[k].active = 1
-            if parts[k].length >= 16*SectPerMiB:
-                m.parttable[k].part_type = ['B','G','M']
-            else:
-                m.parttable[k].part_type = ['G','E','M']
-            m.parttable[k].lba_start = uint32(parts[k].start)
-            m.parttable[k].lba_size = uint32(parts[k].length)
-            bigEndian32(addr m.parttable[k].lba_start, addr m.parttable[k].lba_start)
-            bigEndian32(addr m.parttable[k].lba_size, addr m.parttable[k].lba_size)
+            fillAtariPart(m.parttable[k], start=parts[k].start, length=parts[k].length)
         if doExtended:
-            m.parttable[3].active = 1
-            m.parttable[3].part_type = ['X','G','M']
-            m.parttable[3].lba_start = uint32(parts[3].start)
-            m.parttable[3].lba_size = uint32(diskSize - parts[3].start) # spans remaining length of disk
-            bigEndian32(addr m.parttable[3].lba_start, addr m.parttable[3].lba_start)
-            bigEndian32(addr m.parttable[3].lba_size, addr m.parttable[3].lba_size)
+            # spans the entire remaining length of the disk
+            fillAtariPart(m.parttable[3], start=parts[3].start, length=diskSize - parts[3].start, extended=true)
 
         # calculate checksum so that MBR is NOT bootable
         let MBR2 = cast[array[256,uint16]](m)
@@ -392,25 +391,14 @@ proc createMBR(unit: int, parts: var openArray[Partition], diskSize: int, atari:
             if not atari:
                 var m = DOSMBR()
 
-                m.parttable[0].part_type = 0x06 # FAT16
-                m.parttable[0].lba_start = 1 # relative to this boot record!
-                m.parttable[0].lba_size = uint32(parts[k].length)
-                littleEndian32(addr m.parttable[0].lba_start, addr m.parttable[0].lba_start)
-                littleEndian32(addr m.parttable[0].lba_size, addr m.parttable[0].lba_size)
-                # don't bother with CHS
-                m.parttable[0].chs_start = [0xff,0xff,0xff]
-                m.parttable[0].chs_end = [0xff,0xff,0xff]
+                # start is relative to this boot record
+                fillDOSPart(m.parttable[0], start=1, length=parts[k].length)
 
                 if k < numParts-1:
                     # another extended partition follows?
-                    m.parttable[1].part_type = 0x05 # Extended partition
-                    m.parttable[1].lba_start = uint32(parts[k+1].start - extendedStart) # relative to the first extended boot record!
-                    m.parttable[1].lba_size = uint32(diskSize - parts[k+1].start) # spans remaining length of disk
-                    littleEndian32(addr m.parttable[1].lba_start, addr m.parttable[1].lba_start)
-                    littleEndian32(addr m.parttable[1].lba_size, addr m.parttable[1].lba_size)
-                    # don't bother with CHS
-                    m.parttable[1].chs_start = [0xff,0xff,0xff]
-                    m.parttable[1].chs_end = [0xff,0xff,0xff]
+                    fillDOSPart(m.parttable[1], start=parts[k+1].start - extendedStart, # relative to the first extended boot record!
+                                                length=diskSize - parts[k+1].start, # spans remaining length of disk
+                                                extended=true)
 
                 MBR = cast[Sector](m)
 
@@ -418,24 +406,13 @@ proc createMBR(unit: int, parts: var openArray[Partition], diskSize: int, atari:
                 # Atari-style
                 var m = AtariMBR()
 
-                m.parttable[0].active = 1
-                if parts[k].length >= 16*SectPerMiB:
-                    m.parttable[0].part_type = ['B','G','M']
-                else:
-                    m.parttable[0].part_type = ['G','E','M']
-                m.parttable[0].lba_start = 1 # relative to this boot record!
-                m.parttable[0].lba_size = uint32(parts[k].length)
-                bigEndian32(addr m.parttable[0].lba_start, addr m.parttable[0].lba_start)
-                bigEndian32(addr m.parttable[0].lba_size, addr m.parttable[0].lba_size)
+                fillAtariPart(m.parttable[0], start=1, length=parts[k].length)
 
                 if k < numParts-1:
                     # another extended partition follows?
-                    m.parttable[1].active = 1
-                    m.parttable[1].part_type = ['X','G','M']
-                    m.parttable[1].lba_start = uint32(parts[k+1].start - extendedStart) # relative to the first extended boot record!
-                    m.parttable[1].lba_size = uint32(diskSize - parts[k+1].start) # spans remaining length of disk
-                    bigEndian32(addr m.parttable[1].lba_start, addr m.parttable[1].lba_start)
-                    bigEndian32(addr m.parttable[1].lba_size, addr m.parttable[1].lba_size)
+                    fillAtariPart(m.parttable[1], start=parts[k+1].start - extendedStart, # relative to the first extended boot record!
+                                                  length=diskSize - parts[k+1].start, # spans remaining length of disk
+                                                  extended=true)
 
                 MBR = cast[Sector](m)
 
