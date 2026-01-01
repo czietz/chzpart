@@ -356,6 +356,13 @@ proc createMBR(unit: int, parts: var openArray[Partition], diskSize: int, atari:
             m.parttable[k].lba_size = uint32(parts[k].length)
             bigEndian32(addr m.parttable[k].lba_start, addr m.parttable[k].lba_start)
             bigEndian32(addr m.parttable[k].lba_size, addr m.parttable[k].lba_size)
+        if doExtended:
+            m.parttable[3].active = 1
+            m.parttable[3].part_type = ['X','G','M']
+            m.parttable[3].lba_start = uint32(parts[3].start)
+            m.parttable[3].lba_size = uint32(diskSize - parts[3].start) # spans remaining length of disk
+            bigEndian32(addr m.parttable[3].lba_start, addr m.parttable[3].lba_start)
+            bigEndian32(addr m.parttable[3].lba_size, addr m.parttable[3].lba_size)
 
         # calculate checksum so that MBR is NOT bootable
         let MBR2 = cast[array[256,uint16]](m)
@@ -404,6 +411,31 @@ proc createMBR(unit: int, parts: var openArray[Partition], diskSize: int, atari:
                     # don't bother with CHS
                     m.parttable[1].chs_start = [0xff,0xff,0xff]
                     m.parttable[1].chs_end = [0xff,0xff,0xff]
+
+                MBR = cast[Sector](m)
+
+            else: # atari
+                # Atari-style
+                var m = AtariMBR()
+
+                m.parttable[0].active = 1
+                if parts[k].length >= 16*SectPerMiB:
+                    m.parttable[0].part_type = ['B','G','M']
+                else:
+                    m.parttable[0].part_type = ['G','E','M']
+                m.parttable[0].lba_start = 1 # relative to this boot record!
+                m.parttable[0].lba_size = uint32(parts[k].length)
+                bigEndian32(addr m.parttable[0].lba_start, addr m.parttable[0].lba_start)
+                bigEndian32(addr m.parttable[0].lba_size, addr m.parttable[0].lba_size)
+
+                if k < numParts-1:
+                    # another extended partition follows?
+                    m.parttable[1].active = 1
+                    m.parttable[1].part_type = ['X','G','M']
+                    m.parttable[1].lba_start = uint32(parts[k+1].start - extendedStart) # relative to the first extended boot record!
+                    m.parttable[1].lba_size = uint32(diskSize - parts[k+1].start) # spans remaining length of disk
+                    bigEndian32(addr m.parttable[1].lba_start, addr m.parttable[1].lba_start)
+                    bigEndian32(addr m.parttable[1].lba_size, addr m.parttable[1].lba_size)
 
                 MBR = cast[Sector](m)
 
