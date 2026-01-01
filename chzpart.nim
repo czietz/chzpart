@@ -640,7 +640,7 @@ when not useDiskImage:
             quit(1)
         swapBytes = bool(swapChoice.get())
 
-let numChoice = getNumber("Number of partitions", 1, 6)
+let numChoice = getNumber("Number of partitions", 1, 14)
 if numChoice.isNone:
     quit(1)
 let numPart = numChoice.get()
