@@ -307,15 +307,21 @@ type
         badsize:    uint32  # not used
         filler2:    uint16
 
-proc createMBR(unit: int, parts: openArray[Partition], diskSize: int, atari: bool, byteswap: bool) =
+proc createMBR(unit: int, parts: var openArray[Partition], diskSize: int, atari: bool, byteswap: bool) =
 
-    var MBR: ptr[Sector]
+    var MBR: Sector
 
+    # when more than 4 partitions are requested, create extended partitions
+    let numParts = parts.len
+    let doExtended = numParts > 4
+    let numPrimary = (if doExtended: 3 else: numParts)
+
+    # Create MBR with primary partitions
     if not atari:
         # DOS-style
         var m = DOSMBR()
         m.signature = rand(uint32)    # don't bother with endianness
-        for k in 0..(parts.len-1):
+        for k in 0..(numPrimary-1):
             m.parttable[k].part_type = 0x06 # FAT16
             m.parttable[k].lba_start = uint32(parts[k].start)
             m.parttable[k].lba_size = uint32(parts[k].length)
@@ -324,13 +330,23 @@ proc createMBR(unit: int, parts: openArray[Partition], diskSize: int, atari: boo
             # don't bother with CHS
             m.parttable[k].chs_start = [0xff,0xff,0xff]
             m.parttable[k].chs_end = [0xff,0xff,0xff]
-        MBR = cast[ptr[Sector]](addr m)
+        if doExtended:
+            m.parttable[3].part_type = 0x05 # Extended partition
+            m.parttable[3].lba_start = uint32(parts[3].start)
+            m.parttable[3].lba_size = uint32(diskSize - parts[3].start) # spans remaining length of disk
+            littleEndian32(addr m.parttable[3].lba_start, addr m.parttable[3].lba_start)
+            littleEndian32(addr m.parttable[3].lba_size, addr m.parttable[3].lba_size)
+            # don't bother with CHS
+            m.parttable[3].chs_start = [0xff,0xff,0xff]
+            m.parttable[3].chs_end = [0xff,0xff,0xff]
+
+        MBR = cast[Sector](m)
     else:
         # Atari-style
         var m = AtariMBR()
         m.disk_size = uint32(diskSize)
         bigEndian32(addr m.disk_size, addr m.disk_size)
-        for k in 0..(parts.len-1):
+        for k in 0..(numPrimary-1):
             m.parttable[k].active = 1
             if parts[k].length >= 16*SectPerMiB:
                 m.parttable[k].part_type = ['B','G','M']
@@ -351,10 +367,47 @@ proc createMBR(unit: int, parts: openArray[Partition], diskSize: int, atari: boo
         m.checksum = 0xFFFF'u16 - sum   # 0x1234 would make it bootable
         bigEndian16(addr m.checksum, addr m.checksum)
 
-        MBR = cast[ptr[Sector]](addr m)
+        MBR = cast[Sector](m)
 
-    diskWrite(unit, 0, MBR, byteswap)
+    diskWrite(unit, 0, addr MBR, byteswap)
 
+    # Create extended boot records with extended partitions
+    if doExtended:
+        # location of first extended boot record
+        let extendedStart = parts[3].start
+
+        for k in 3..(numParts-1):
+            let extendedCurrent = parts[k].start
+            # fixup partitions to make space for extended boot record
+            parts[k].start = parts[k].start+1
+            parts[k].length = parts[k].length-1
+
+            if not atari:
+                var m = DOSMBR()
+
+                m.parttable[0].part_type = 0x06 # FAT16
+                m.parttable[0].lba_start = 1 # relative to this boot record!
+                m.parttable[0].lba_size = uint32(parts[k].length)
+                littleEndian32(addr m.parttable[0].lba_start, addr m.parttable[0].lba_start)
+                littleEndian32(addr m.parttable[0].lba_size, addr m.parttable[0].lba_size)
+                # don't bother with CHS
+                m.parttable[0].chs_start = [0xff,0xff,0xff]
+                m.parttable[0].chs_end = [0xff,0xff,0xff]
+
+                if k < numParts-1:
+                    # another extended partition follows?
+                    m.parttable[1].part_type = 0x05 # Extended partition
+                    m.parttable[1].lba_start = uint32(parts[k+1].start - extendedStart) # relative to the first extended boot record!
+                    m.parttable[1].lba_size = uint32(diskSize - parts[k+1].start) # spans remaining length of disk
+                    littleEndian32(addr m.parttable[1].lba_start, addr m.parttable[1].lba_start)
+                    littleEndian32(addr m.parttable[1].lba_size, addr m.parttable[1].lba_size)
+                    # don't bother with CHS
+                    m.parttable[1].chs_start = [0xff,0xff,0xff]
+                    m.parttable[1].chs_end = [0xff,0xff,0xff]
+
+                MBR = cast[Sector](m)
+
+            diskWrite(unit, extendedCurrent, addr MBR, byteswap)
 
 ### FAT FILE SYSTEM CODE ###
 
@@ -578,7 +631,7 @@ when not useDiskImage:
             quit(1)
         swapBytes = bool(swapChoice.get())
 
-let numChoice = getNumber("Number of partitions", 1, 4)
+let numChoice = getNumber("Number of partitions", 1, 6)
 if numChoice.isNone:
     quit(1)
 let numPart = numChoice.get()
@@ -589,7 +642,7 @@ let diskSize = getDiskSize(unit)
 var startPart = 1 # first sector is for MBR
 var parts: seq[Partition]
 for k in 1..numPart:
-    const partWord = ["1st","2nd","3rd","4th"]
+    const partWords = ["1st","2nd","3rd"]
     const minSize = 5 # to avoid disks with less than 4085 clusters
 
     # maximum size for this partition
@@ -599,7 +652,8 @@ for k in 1..numPart:
     if (partType == TypeDOS) and (maxSize > 2047):
         maxSize = 2047
 
-    let sizeChoice = getNumber("Size of " & partWord[k-1] & " partition in MiB", minSize, maxSize)
+    let partWord = (if k <= 3: partWords[k-1] else: $k & "th")
+    let sizeChoice = getNumber("Size of " & partWord & " partition in MiB", minSize, maxSize)
     if sizeChoice.isNone:
         quit(1)
     let sizeSect = sizeChoice.get() * SectPerMiB
