@@ -77,9 +77,8 @@ when defined(atari):
             return ""
 # on other platforms we use rdstdin which uses OS dependent libraries
 else:
-    import std/rdstdin
     proc readInputLine(): string =
-        readLineFromStdin("")
+        stdin.readLine()
 
 # test if we run under EmuTOS
 when defined(atari):
