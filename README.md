@@ -120,7 +120,7 @@ Note: This option is only available when partitioning an IDE hard disk with MS-D
 
 ### 4. Number of Partitions
 
-* You can create **1 to 4 partitions**
+* You can create **1 to 14 partitions**
 * The program ensures that partition sizes remain valid and within disk limits
 
 ---
@@ -161,7 +161,6 @@ A progress message is shown while the disk is being partitioned.
 
 ## Limits and Notes
 
-* Maximum of **4 partitions**
 * Atari partitions (supported by EmuTOS and Atari TOS 1.04 and above) are limited to **511 MiB**
 * MS-DOS partitions (supported by EmuTOS, too) are limited to **2047 MiB**
 * **FAT16** is used for maximum compatibility
