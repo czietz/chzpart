@@ -75,7 +75,7 @@ when defined(atari):
             return substr(l.buffer[0..(l.actuallen-1)])
         else:
             return ""
-# on other platforms we use rdstdin which uses OS dependent libraries
+
 else:
     proc readInputLine(): string =
         stdin.readLine()
