@@ -188,3 +188,8 @@ You are free to use, modify, and redistribute it under the terms of that license
 
 Note: As stated in the license terms, this program is provided “AS IS” WITHOUT WARRANTY OF ANY KIND.
 
+## Building from source code
+
+This program is written in the [Nim programming language](https://nim-lang.org/). 
+
+To build the TOS version, the `Atari_TOS_support_v2` branch from https://github.com/czietz/Nim/ is required. The exact build steps are documented in the GitHub actions work-flow file `.github/workflows/build.yml` .
