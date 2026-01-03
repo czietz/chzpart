@@ -243,7 +243,7 @@ else:   # not useDiskImage
                 cnt = cnt+1
 
 
-proc diskWrite(unit: int, sectNum: int, sectData: ptr[Sector], byteswap: bool, partition: Option[Partition] = none(Partition)) =
+proc diskWrite(unit: int, sectNum: int, sectData: Sector, byteswap: bool, partition: Option[Partition] = none(Partition)) =
 
     var realSectNum: int
     if partition.isSome:
@@ -253,23 +253,26 @@ proc diskWrite(unit: int, sectNum: int, sectData: ptr[Sector], byteswap: bool, p
     else:
         realSectNum = sectNum
 
+    # swap out of place in order not to corrupt passed data
+    var realSectData = sectData
     if byteswap:
-        var sectTemp = cast[ptr array[SectSize div 2,uint16]](sectData)
-        for k in 0..((SectSize div 2)-1):
-            swapEndian16(addr sectTemp[k], addr sectTemp[k])
+        for k in countup(0, SectSize-1, 2):
+            let temp = realSectData[k]
+            realSectData[k] = realSectData[k+1]
+            realSectData[k+1] = temp
 
     when useDiskImage:
         # write to file
         let tmpFile = open(paramStr(1), mode = fmReadWriteExisting)
         tmpFile.setFilePos(realSectNum * SectSize)
-        let numWritten = tmpFile.writeBuffer(sectData, SectSize)
+        let numWritten = tmpFile.writeBuffer(addr realSectData, SectSize)
         if numWritten != SectSize:
             raise newException(IOError, "could not write to file")
         tmpFile.close()
     else: # not useDiskImage
         # on EmuTOS one can bypass potential additional byte-swapping by the disk driver
         let rwflag = (if isEmuTOS(): (0x80 + 1) else: 1)
-        let retval = XHReadWrite(cushort(unit), 0, cushort(rwflag), culong(realSectNum), 1, sectData)
+        let retval = XHReadWrite(cushort(unit), 0, cushort(rwflag), culong(realSectNum), 1, addr realSectData)
         if retval != 0:
             raise newException(IOError, "could not write to disk")
 
@@ -374,7 +377,7 @@ proc createMBR(unit: int, parts: var openArray[Partition], diskSize: int, atari:
 
         MBR = cast[Sector](m)
 
-    diskWrite(unit, 0, addr MBR, byteswap)
+    diskWrite(unit, 0, MBR, byteswap)
 
     # Create extended boot records with extended partitions
     if doExtended:
@@ -415,7 +418,7 @@ proc createMBR(unit: int, parts: var openArray[Partition], diskSize: int, atari:
 
                 MBR = cast[Sector](m)
 
-            diskWrite(unit, extendedCurrent, addr MBR, byteswap)
+            diskWrite(unit, extendedCurrent, MBR, byteswap)
 
 ### FAT FILE SYSTEM CODE ###
 
@@ -515,18 +518,18 @@ proc createFAT16(unit:int, part: Partition, atari: bool, byteswap: bool) =
     fat[1] = 0xff
     fat[2] = 0xff
     fat[3] = 0xff
-    diskWrite(unit, fat1start, addr fat, byteswap, some(part))
+    diskWrite(unit, fat1start, fat, byteswap, some(part))
     for k in 1..(realfatsz-1):
-        diskWrite(unit, fat1start+k, addr zeroSector, byteswap, some(part))
+        diskWrite(unit, fat1start+k, zeroSector, byteswap, some(part))
     if b.numfat == 2:
         rootdirstart = fat2start + realfatsz
-        diskWrite(unit, fat2start, addr fat, byteswap, some(part))
+        diskWrite(unit, fat2start, fat, byteswap, some(part))
         for k in 1..(realfatsz-1):
-            diskWrite(unit, fat2start+k, addr zeroSector, byteswap,some(part))
+            diskWrite(unit, fat2start+k, zeroSector, byteswap,some(part))
 
     # zero root directory
     for k in 0..(rootdirsect-1):
-        diskWrite(unit, rootdirstart+k, addr zeroSector, byteswap, some(part))
+        diskWrite(unit, rootdirstart+k, zeroSector, byteswap, some(part))
 
     # convert all fields to littleEndian
     littleEndian16(addr b.bps, addr b.bps)
@@ -543,7 +546,7 @@ proc createFAT16(unit:int, part: Partition, atari: bool, byteswap: bool) =
 
     # write boot sectors
     let s = cast[Sector](b)
-    diskWrite(unit, 0, addr s, byteswap, some(part))
+    diskWrite(unit, 0, s, byteswap, some(part))
 
 ### MAIN FUNCTION CODE ###
 
