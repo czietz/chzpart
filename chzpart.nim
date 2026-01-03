@@ -209,9 +209,13 @@ when useDiskImage:
         let fz = int(getFileSize(paramStr(1)) div SectSize)
         return fz
 
+    proc getDiskName(unit: int): Option[string] =
+        # write to file
+        some(fmt"Disk image '{paramStr(1)}'")
+
     proc getAvailableDisks(menu_disk: var seq[MenuItem]) =
         # write to file
-        menu_disk.add(MenuItem(val: 0, key: 'A', text: fmt"Disk image '{paramStr(1)}'", help: fmt"Size: {getDiskSize(0) div SectPerMiB} MiB"))
+        menu_disk.add(MenuItem(val: 0, key: 'A', text: getDiskName(0).get(), help: fmt"Size: {getDiskSize(0) div SectPerMiB} MiB"))
 
 else:   # not useDiskImage
 
@@ -225,21 +229,31 @@ else:   # not useDiskImage
         else:
             result = 0
 
+    proc getDiskName(unit: int): Option[string] =
+        var
+            blksize: culong
+            flags: culong
+            name = newString(33)
+
+        let retval = XHInqTarget(cushort(unit), 0, addr blksize, addr flags, name.cstring)
+        if (retval == 0) and (blksize > 0):
+            return some($(name.cstring))
+        else:
+            return # none
+
     proc getAvailableDisks(menu_disk: var seq[MenuItem]) =
         const busnames = ["ACSI", "SCSI", "IDE", "SD-Card", "USB"]
         var
             cnt = 0
-            blksize: culong
-            flags: culong
-            name = newString(33)
+
         let units = {0..19, 24, 32..39}
         for unit in units:
-            let retval = XHInqTarget(cushort(unit), 0, addr blksize, addr flags, name.cstring)
-            if (retval == 0) and (blksize > 0):
+            let diskName = getDiskName(unit)
+            if diskName.isSome:
                 let bus = unit div 8
                 let dev = unit mod 8
                 let siz = getDiskSize(unit) div SectPerMiB
-                menu_disk.add(MenuItem(val: unit, key: chr(ord('A')+cnt), text: $(name.cstring), help: fmt"Bus: {busnames[bus]}. Device: {dev}. Size: {siz} MiB"))
+                menu_disk.add(MenuItem(val: unit, key: chr(ord('A')+cnt), text: diskName.get(), help: fmt"Bus: {busnames[bus]}. Device: {dev}. Size: {siz} MiB"))
                 cnt = cnt+1
 
 
@@ -647,6 +661,7 @@ if numChoice.isNone:
     quit(1)
 let numPart = numChoice.get()
 
+let diskName = getDiskName(unit).get()
 let diskSize = getDiskSize(unit)
 
 # Ask the user for partition sizes
@@ -673,7 +688,7 @@ for k in 1..numPart:
     startPart = startPart + sizeSect
 
 # Ask the user to confirm partition creation
-let menu_confirm = @[MenuItem(val: int(true), key: 'Y', text: "Partition disk", help: "This deletes the existing disk content!"),
+let menu_confirm = @[MenuItem(val: int(true), key: 'Y', text: "Partition: " & diskName, help: "This deletes the existing disk content!"),
                      MenuItem(val: int(false), key: 'N', text: "Discard changes and exit program")]
 let confirmChoice = displayMenu("Confirm disk partitioning", menu_confirm, implicitquit = false)
 if confirmChoice.isNone or not bool(confirmChoice.get()):
