@@ -219,8 +219,8 @@ else:   # not useDiskImage
         var blksize: culong
         var blocks: culong
         let retval = XHGetCapacity(cushort(unit), 0, addr blocks, addr blksize)
-        doAssert(blksize == SectSize, "only devices with 512 bytes per sector are supported")
-        if retval == 0:
+        if (retval == 0) and (blocks > 0):
+            doAssert(blksize == SectSize, "only devices with 512 bytes per sector are supported")
             result = int(blocks) * (int(blksize) div SectSize)
         else:
             result = 0
@@ -235,7 +235,7 @@ else:   # not useDiskImage
         let units = {0..19, 24, 32..39}
         for unit in units:
             let retval = XHInqTarget(cushort(unit), 0, addr blksize, addr flags, name.cstring)
-            if retval == 0:
+            if (retval == 0) and (blksize > 0):
                 let bus = unit div 8
                 let dev = unit mod 8
                 let siz = getDiskSize(unit) div SectPerMiB
