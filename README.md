@@ -96,22 +96,27 @@ You can choose between:
   * Maximum partition size **2047 MiB**
 * **Atari  TOS 1.04 and above**
   * Compatible with:
-
     * EmuTOS
     * Atari TOS 1.04 and above
   * Maximum partition size **512 MiB**
 * **Atari  TOS 1.00 and above**
   * Compatible with:
-
     * EmuTOS
     * All versions of Atari TOS
   * Maximum partition size **256 MiB**
 * **Atari  TOS 4.04 and above**
   * Compatible with:
-
     * EmuTOS
     * Atari TOS 4.04 (for the Atari Falcon)
   * Maximum partition size **1024 MiB**
+* **GUID Partition Table (GPT)**
+  * Compatible with:
+    * EmuTOS 1.5 and later
+    * Windows
+    * Linux
+    * macOS
+  * Unless your use-case specifically requires a GUID Partition Table, you should prefer MS-DOS or Atari partitioning instead.
+  * Only available in _expert mode_.
 
 Choose the type that best matches how the disk will be used.
 
@@ -130,7 +135,7 @@ You may be asked whether to enable **byte swapping** for IDE hard disks:
 
 ⚠️ Always choose **no** for “smart” IDE interfaces that have hardware byte swapping.
 
-Note: This option is only available when partitioning an IDE hard disk with MS-DOS partitions, and only when running under EmuTOS.
+Note: This option is only available when partitioning an IDE hard disk with MS-DOS / GPT partitions, and only when running under EmuTOS.
 
 ---
 
@@ -192,7 +197,7 @@ A progress message is shown while the disk is being partitioned.
 ## Limits and Notes
 
 * Atari partitions (supported by EmuTOS and Atari TOS) are limited to **256, 512 or 1024 MiB** depending on the version of Atari TOS.
-* MS-DOS partitions (supported by EmuTOS, too) are limited to **2047 MiB**
+* MS-DOS and GPT partitions (supported by EmuTOS, too) are limited to **2047 MiB**
 * Hybrid “TOS & Windows” partitioning schemes are deliberately not supported as they tend to cause subtle incompatibilities, e.g., on Linux
 * **FAT16** is used for maximum compatibility
 * Other file systems (ext2, FAT32, …) must be created with separate tools
