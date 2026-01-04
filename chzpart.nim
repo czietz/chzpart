@@ -14,6 +14,8 @@ import std/random
 import std/assertions
 import std/cmdline
 
+import crc32
+
 ### GLOBAL VARIABLES AND TYPES ###
 
 const ProgramBanner   = "CHZ Atari Disk Partitioning Tool - "
@@ -25,7 +27,7 @@ const CopyrightBanner = "(C) 2026 Christian Zietz <czietz@gmx.net>\n" &
                         "This program is free software; you can redistribute it and/or modify\n" &
                         "it under the terms of the GNU General Public License."
 
-type PartitionType = enum TypeDOS, TypeAtari
+type PartitionType = enum TypeDOS, TypeAtari, TypeGPT
 
 type TOSSupport = enum TOS100, TOS104, TOS404
 
@@ -39,6 +41,7 @@ type
         case kind: PartitionType
         of TypeAtari: a: AtariPart_ID
         of TypeDOS: m: DOSPart_ID
+        of TypeGPT: discard # dummy, not used
 
 # command line handling
 var params: seq[string]
@@ -133,6 +136,8 @@ func `$`(p: UnionPart_ID): string {.used.} =
             result = p.m.toHex(2)
         of TypeAtari:
             result = p.a[0] & p.a[1] & p.a[2]
+        else:
+            result = ""
 
 ### MENU CODE ###
 
@@ -397,6 +402,7 @@ func LBA2CHS(lba: int): array[3,uint8] =
 const
     DOSPart_FAT16: DOSPart_ID = 0x06
     DOSPart_Extended: DOSPart_ID = 0x05
+    DOSPart_Protective: DOSPart_ID = 0xee
 
 func fillDOSPart(p: var DOSPart, start: int, length: int, partID: Option[UnionPart_ID]) =
     p.part_id = (if partID.isSome: partID.get().m else: DOSPart_FAT16)
@@ -517,6 +523,133 @@ proc createMBR(unit: int, parts: var openArray[Partition], diskSize: int, tos: O
 
             diskWrite(unit, extendedCurrent, MBR, byteswap)
 
+
+### GUID PARTITON TABLE CODE ###
+
+const
+    FAT16GUID = [0xA2'u8,0xA0,0xD0,0xEB,0xE5,0xB9,0x33,0x44,0x87,0xC0,0x68,0xB6,0xB7,0x26,0x99,0xC7]
+
+type
+    # construct it in a way that is endianness insensitive
+    RandomGUID {.packed.} = object
+        rand1:      uint32
+        rand2:      uint16
+        version:    uint16 = 0x4242
+        subtype:    uint16 = 0x8383
+        rand3:      uint32
+        rand4:      uint16
+
+    GPTHeader {.packed.} = object
+        signature:  array[8,char] = toArr("EFI PART")
+        revision:   array[4,uint8] = [0,0,1,0]
+        headersize: uint32
+        headercrc:  uint32 = 0
+        reserved:   uint32 = 0
+        curlba64:   uint64
+        backlba64:  uint64
+        firstlba64: uint64
+        lastlba64:  uint64
+        diskguid:   RandomGUID
+        partlba64:  uint64
+        partnum:    uint32
+        partsize:   uint32 = 128
+        partcrc:    uint32
+        filler:     array[420,uint8]
+
+    GPTPart {.packed.} = object
+        typeguid:   array[16,uint8]
+        uniqueguid: RandomGUID
+        firstlba64: uint64 = 0
+        lastlba64:  uint64 = 0
+        attributes: uint64 = 0
+        name:       array[72,uint8]
+
+    GPTSector {.packed.} = array[4,GPTPart]
+
+proc createRandomGUID(): RandomGUID =
+
+    result = RandomGUID()
+    result.rand1 = rand(uint32)
+    result.rand3 = rand(uint32)
+    result.rand2 = rand(uint16)
+    result.rand4 = rand(uint16)
+
+const GPTmaxPartNum = 128  # for compatibility with EFI spec
+const GPTpartSects  = GPTmaxPartNum div 4
+
+proc createGPT(unit: int, parts: var openArray[Partition], diskSize: int, byteswap: bool) =
+
+    # locations of partition entries (primary and backup)
+    let parttable1 = 2
+    let parttable2 = diskSize - GPTpartSects - 1
+
+    var partCrc32: TCrc32
+    initCrc32()
+    for k in 0..GPTpartSects-1:
+        var ent: GPTSector
+        for l in 0..3:
+            let idx = 4*k+l
+            # fill partition data
+            if idx < parts.len:
+                ent[l].uniqueguid = createRandomGUID()
+                ent[l].typeguid = FAT16GUID
+                ent[l].firstlba64 = uint64(parts[idx].start)
+                ent[l].lastlba64 = uint64(parts[idx].start + parts[idx].length - 1) # sector number is inclusive!
+                littleEndian64(addr ent[l].firstlba64, addr ent[l].firstlba64)
+                littleEndian64(addr ent[l].lastlba64, addr ent[l].lastlba64)
+            partCrc32 = calcCrc32(cast[array[sizeOf(GPTPart),uint8]](ent[l]))
+
+        diskWrite(unit, parttable1+k, cast[Sector](ent), byteswap)
+        diskWrite(unit, parttable2+k, cast[Sector](ent), byteswap)
+
+    var g = GPTHeader()
+
+    g.headersize = uint32(offsetOf(GPTHeader, filler))
+    g.curlba64 = uint64(1)
+    g.backlba64 = uint64(diskSize - 1)
+    g.firstlba64 = uint64(parttable1 + GPTpartSects)
+    g.lastlba64 = uint64(parttable2 - 1)
+    g.partlba64 = uint64(parttable1)
+    g.partnum = uint32(GPTmaxPartNum)
+    g.partcrc = uint32(partCrc32)
+    g.diskguid = createRandomGUID()
+
+    littleEndian32(addr g.headersize, addr g.headersize)
+    littleEndian32(addr g.partnum, addr g.partnum)
+    littleEndian32(addr g.partsize, addr g.partsize)
+    littleEndian32(addr g.partcrc, addr g.partcrc)
+
+    littleEndian64(addr g.curlba64, addr g.curlba64)
+    littleEndian64(addr g.backlba64, addr g.backlba64)
+    littleEndian64(addr g.firstlba64, addr g.firstlba64)
+    littleEndian64(addr g.lastlba64, addr g.lastlba64)
+    littleEndian64(addr g.partlba64, addr g.partlba64)
+
+    # Main GPT header
+    block:
+        initCrc32()
+        let headerCrc32 = calcCrc32(cast[array[SectSize,uint8]](g), offsetOf(g,filler))
+        g.headercrc = uint32(headerCrc32)
+        littleEndian32(addr g.headercrc, addr g.headercrc)
+        diskWrite(unit, 1, cast[Sector](g), byteswap)
+
+    # Backup GPT header
+    block:
+        initCrc32()
+        g.headercrc = 0 # reset to 0 for CRC calculation
+        swap(g.curlba64, g.backlba64)
+        g.partlba64 = uint64(parttable2)
+        littleEndian64(addr g.partlba64, addr g.partlba64)
+        let headerCrc32 = calcCrc32(cast[array[SectSize,uint8]](g), offsetOf(g,filler))
+        g.headercrc = uint32(headerCrc32)
+        littleEndian32(addr g.headercrc, addr g.headercrc)
+        diskWrite(unit, diskSize-1, cast[Sector](g), byteswap)
+
+    # protective MBR
+    var m = DOSMBR()
+    fillDOSPart(m.parttable[0], start=1, length=diskSize-1, partID=mkPartID(DOSPart_Protective))
+    diskWrite(unit, 0, cast[Sector](m), byteswap)
+
 ### FAT FILE SYSTEM CODE ###
 
 type
@@ -589,7 +722,8 @@ proc createFAT16(unit:int, part: Partition, tos: Option[TOSSupport], byteswap: b
     # FAT size calculation in physical! sectors (formulas taken from MS FAT spec)
     let rootdirsect = ((int(b.numroot) * 32) + (SectSize - 1)) div SectSize
     let tmpval1 = part.length - int(b.reserved) - rootdirsect
-    let tmpval2 = (256 * clustersize) + int(b.numfat) # TODO: check why + numfat ?
+    # + numfat is compensates for the fact that the FAT itself takes away sectors
+    let tmpval2 = (256 * clustersize) + int(b.numfat)
     let fatsz = (tmpval1 + (tmpval2-1)) div tmpval2
     b.spf = uint16(fatsz)
 
@@ -738,11 +872,15 @@ let unit = unitChoice.get()
 let menu_mapping = [(TypeDOS, none(TOSSupport)), # 0
                     (TypeAtari, some(TOS104)),   # 1
                     (TypeAtari, some(TOS100)),   # 2
-                    (TypeAtari, some(TOS404))]   # 3
-let menu_type =  [MenuItem(val: 0, key: 'M', text: "MS-DOS", help: "Compatible with EmuTOS, Windows, Linux, macOS"),
+                    (TypeAtari, some(TOS404)),   # 3
+                    (TypeGPT, none(TOSSupport))] # 4
+var menu_type = @[MenuItem(val: 0, key: 'M', text: "MS-DOS", help: "Compatible with EmuTOS, Windows, Linux, macOS"),
                   MenuItem(val: 1, key: 'A', text: "Atari TOS >= 1.04", help: "Compatible with EmuTOS, Atari TOS 1.04 and above"),
                   MenuItem(val: 2, key: 'B', text: "Atari TOS >= 1.00", help: "Compatible with EmuTOS, Atari TOS (all versions)"),
                   MenuItem(val: 3, key: 'C', text: "Atari TOS >= 4.04", help: "Compatible with EmuTOS, Atari TOS 4.04 only")]
+
+if expertmode:
+    menu_type.add(MenuItem(val: 4, key: 'G', text: "GUID Partition Table (GPT)", help: "Compatible with EmuTOS 1.5 and above, Windows, Linux, macOS"))
 
 let partChoice = displayMenu("Select partition type", menu_type)
 if partChoice.isNone:
@@ -756,7 +894,7 @@ let (partType,tosType) = menu_mapping[partChoice.get()]
 var swapBytes = false
 when not useDiskImage:
     let bus = unit div 8
-    if isEmuTOS() and (partType == TypeDOS) and (bus == 2): # IDE bus
+    if isEmuTOS() and (partType != TypeAtari) and (bus == 2): # IDE bus
         let menu_swap =  [MenuItem(val: int(true), key: 'Y', text: "Activate byte swapping", help: "On 'dumb' IDE interfaces, this facilitates data exchange"),
                           MenuItem(val: int(false), key: 'N', text: "Deactivate byte swapping", help: "Recommended for best performance")]
         let swapChoice = displayMenu("IDE byte-swapping", menu_swap)
@@ -773,7 +911,10 @@ let diskName = getDiskName(unit).get()
 let diskSize = getDiskSize(unit)
 
 # Ask the user for partition sizes
-var startPart = 1 # first sector is for MBR
+# MBR takes one sector, GPT takes 1 sector for MBR, one for GPT header, 32 for partition table
+var startPart = (if partType == TypeGPT: 2+GPTpartSects else: 1)
+# backup GPT takes 1 sector for header, 32 for partition table
+let endPart   = (if partType == TypeGPT: diskSize-GPTpartSects-1 else: diskSize) # non-inclusive!
 var parts: seq[Partition]
 for k in 1..numPart:
     const minSize = 5 # to avoid disks with less than 4085 clusters
@@ -786,13 +927,13 @@ for k in 1..numPart:
         part.partID = getPartID("ID of " & partWord & " partition", t = partType)
 
     # maximum size for this partition
-    var maxSize = ((diskSize - startPart) div SectPerMiB) - (minSize * (numPart-k))
+    var maxSize = ((endPart - startPart) div SectPerMiB) - (minSize * (numPart-k))
 
     # cap maximum size to FAT16 when the user did not enter a custom ID
     if part.partID.isNone:
         if (partType == TypeAtari) and (maxSize > maxSizeTOS[tosType.get()]):
             maxSize = maxSizeTOS[tosType.get()]
-        if (partType == TypeDOS) and (maxSize > 2047):
+        if ((partType == TypeDOS) or (partType == TypeGPT)) and (maxSize > 2047):
             maxSize = 2047
 
     let sizeChoice = getNumber("Size of " & partWord & " partition in MiB", minSize, maxSize)
@@ -822,7 +963,10 @@ stdout.write "Partitioning disk... "
 stdout.flushFile()
 
 # Partiton the disk and create file systems
-createMBR(unit, parts, diskSize, tosType, swapBytes)
+if partType != TypeGPT:
+    createMBR(unit, parts, diskSize, tosType, swapBytes)
+else:
+    createGPT(unit, parts, diskSize, swapBytes)
 for k, part in parts.pairs:
     if part.partID.isNone:
         createFAT16(unit, part, tosType, swapBytes)
