@@ -178,6 +178,24 @@ A progress message is shown while the disk is being partitioned.
   * Partition type
 * When working on Atari systems, **reboot** after the program has finished to apply the new partitioning
 
+## atari-mk-hd-image.sh
+
+A _bash_ shell script is included to create a single partition disk image that can optionally be filled with content.
+
+````
+Usage: ./atari-mk-hd-image.sh [-msdos] <size> [filename] [contentdir]
+````
+
+If no `filename` is specified, the default is `hd.img`. If `-msdos` is specified, an MS-DOS partition table is created, otherwise an Atari partition table is created.
+
+Example:
+
+```
+./atari-mk-hd-image.sh 128 disk.img /tmp/tos/
+```
+
+Creates a new 128 MiB image `disk.img` and fills it with the contents from the `/tmp/tos` directory.
+
 ---
 
 ## License
