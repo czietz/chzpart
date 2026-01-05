@@ -178,9 +178,11 @@ A progress message is shown while the disk is being partitioned.
   * Partition type
 * When working on Atari systems, **reboot** after the program has finished to apply the new partitioning
 
+---
+
 ## atari-mk-hd-image.sh
 
-A _bash_ shell script is included to create a single partition disk image that can optionally be filled with content.
+A _bash_ shell script is included that creates a single partition disk image. The disk image can optionally be filled with content from a directory.
 
 ````
 Usage: ./atari-mk-hd-image.sh [-msdos] <size> [filename] [contentdir]
@@ -205,6 +207,8 @@ This program is **free software**, distributed under the **GNU General Public Li
 You are free to use, modify, and redistribute it under the terms of that license.
 
 Note: As stated in the license terms, this program is provided “AS IS” WITHOUT WARRANTY OF ANY KIND.
+
+---
 
 ## Building from source code
 
