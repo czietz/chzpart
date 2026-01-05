@@ -7,7 +7,8 @@ on:
 jobs:
   buildall:
 
-    runs-on: ubuntu-24.04
+    # Ubuntu 22.04 is supported until 2027 and imposes glibc 2.35 as min. requirement
+    runs-on: ubuntu-22.04
 
     steps:
     - uses: actions/checkout@v4
