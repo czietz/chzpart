@@ -53,8 +53,8 @@ jobs:
       run: |
         pwd
         export LIBCMINI="$(pwd)/libcmini"
-        nim c --cpu:m68k --os:atari --out:chzpart.tos -d:libcmini -d:mintelf -d:release -d:strip chzpart.nim
-        nim c --cpu:m68k --os:atari --out:chzpa_cf.tos -d:libcmini -d:mintelf -d:coldfire -d:release -d:strip chzpart.nim
+        nim c --cpu:m68k --os:atari --out:chzpart.tos -d:libcmini -d:mintelf -d:release -d:lto -d:strip chzpart.nim
+        nim c --cpu:m68k --os:atari --out:chzpa_cf.tos -d:libcmini -d:mintelf -d:coldfire -d:release -d:lto -d:strip chzpart.nim
         nim c -d:release -d:strip chzpart.nim
         nim c -d:mingw -d:release -d:strip chzpart.nim
         nim c --cpu:arm64 --out:chzpart-arm64 -d:release -d:strip chzpart.nim
