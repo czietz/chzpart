@@ -361,7 +361,7 @@ proc createMBR(unit: int, parts: var openArray[Partition], diskSize: int, atari:
         # DOS-style
         var m = DOSMBR()
         m.signature = rand(uint32)    # don't bother with endianness
-        for k in 0..(numPrimary-1):
+        for k in 0 ..< numPrimary:
             fillDOSPart(m.parttable[k], start=parts[k].start, length=parts[k].length)
         if doExtended:
             # spans the entire remaining length of the disk
@@ -373,7 +373,7 @@ proc createMBR(unit: int, parts: var openArray[Partition], diskSize: int, atari:
         var m = AtariMBR()
         m.disk_size = uint32(diskSize)
         bigEndian32(addr m.disk_size, addr m.disk_size)
-        for k in 0..(numPrimary-1):
+        for k in 0 ..< numPrimary:
             fillAtariPart(m.parttable[k], start=parts[k].start, length=parts[k].length)
         if doExtended:
             # spans the entire remaining length of the disk
@@ -398,7 +398,7 @@ proc createMBR(unit: int, parts: var openArray[Partition], diskSize: int, atari:
         # location of first extended boot record
         let extendedStart = parts[3].start
 
-        for k in 3..(numParts-1):
+        for k in 3 ..< numParts:
             let extendedCurrent = parts[k].start
             # fixup partitions to make space for extended boot record
             parts[k].start = parts[k].start+1
@@ -533,16 +533,16 @@ proc createFAT16(unit:int, part: Partition, atari: bool, byteswap: bool) =
     fat[2] = 0xff
     fat[3] = 0xff
     diskWrite(unit, fat1start, fat, byteswap, some(part))
-    for k in 1..(realfatsz-1):
+    for k in 1 ..< realfatsz:
         diskWrite(unit, fat1start+k, zeroSector, byteswap, some(part))
     if b.numfat == 2:
         rootdirstart = fat2start + realfatsz
         diskWrite(unit, fat2start, fat, byteswap, some(part))
-        for k in 1..(realfatsz-1):
+        for k in 1 ..< realfatsz:
             diskWrite(unit, fat2start+k, zeroSector, byteswap,some(part))
 
     # zero root directory
-    for k in 0..(rootdirsect-1):
+    for k in 0 ..< rootdirsect:
         diskWrite(unit, rootdirstart+k, zeroSector, byteswap, some(part))
 
     # convert all fields to littleEndian
