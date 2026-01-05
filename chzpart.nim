@@ -336,15 +336,31 @@ type
         badsize:    uint32  # not used
         filler2:    uint16
 
+# convert a LBA to CHS, using an assumed fake geometry
+# Atari does not care about CHS, but some disk editing tools might complain
+# if the CHS values don't look sensible
+proc LBA2CHS(lba: int): array[3,uint8] =
+    const SectorsPerTrack = 63 # maximum permitted value
+    const NumberOfHeads = 256 # maximum permitted value
+    let Temp = lba div SectorsPerTrack
+    let Sector = (lba mod SectorsPerTrack) + 1
+    let Head = Temp mod NumberOfHeads
+    let Cylinder = Temp div NumberOfHeads
+
+    if Cylinder <= 1023: # maximum permitted value
+        # encode it for MBR (PC BIOS INT13h)
+        result = [uint8(Head),uint8(((Cylinder div 256) shl 6) or Sector),uint8(Cylinder mod 256)]
+    else:
+        result = [0xff,0xff,0xff] # cannot be represented as CHS
+
 proc fillDOSPart(p: var DOSPart, start: int, length: int, extended: bool = false) =
     p.part_type = (if not extended: 0x06 else: 0x05) # FAT16 or extended partition
     p.lba_start = uint32(start)
     p.lba_size = uint32(length)
     littleEndian32(addr p.lba_start, addr p.lba_start)
     littleEndian32(addr p.lba_size, addr p.lba_size)
-    # don't bother with CHS
-    p.chs_start = [0xff,0xff,0xff]
-    p.chs_end = [0xff,0xff,0xff]
+    p.chs_start = LBA2CHS(start)
+    p.chs_end = LBA2CHS(start+length-1)
 
 proc fillAtariPart(p: var AtariPart, start: int, length: int, extended: bool = false) =
     p.active = 1
