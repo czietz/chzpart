@@ -116,6 +116,19 @@ when defined(atari):
     proc XHGetCapacity(major: cushort, minor: cushort, blocks: ptr[culong], blksize: ptr[culong]): clong {.importc, header: "xhdi.h"}
     proc XHReadWrite(major: cushort, minor: cushort, rwflag: cushort, recno: culong, count: cushort, buf: pointer): clong {.importc, header: "xhdi.h"}
 
+
+### HELPER FUNCTIONS ###
+
+# evaluated at compile-time!
+# e.g. converts "ABC" to ['A','B','C']
+
+template toArr(s: static[string]): untyped =
+  var arr: array[s.len,char]
+  for i in 0 ..< s.len:
+    arr[i] = s[i]
+  arr
+
+
 ### MENU CODE ###
 
 type
@@ -439,7 +452,7 @@ proc createMBR(unit: int, parts: var openArray[Partition], diskSize: int, atari:
 type
     FATBoot {.packed.} = object
         bootjmp:    array[3,uint8] = [0xeb, 0x3c, 0x90]
-        oemname:    array[8,char] = ['C','H','Z','P','T','5','.','0']
+        oemname:    array[8,char] = toArr("CHZPT5.0")
         bps:        uint16 = SectSize
         spc:        uint8
         reserved:   uint16 = 1
@@ -456,8 +469,8 @@ type
         dirty:      uint8 = 0
         extsig:     uint8 = 0x29
         volid32:    uint32
-        volname:    array[11,char] = ['N','O',' ','N','A','M','E',' ',' ',' ',' ']
-        fstype:     array[8,char] = ['F','A','T','1','6',' ',' ',' ']
+        volname:    array[11,char] = toArr("NO NAME    ")
+        fstype:     array[8,char] = toArr("FAT16   ")
         filler:     array[448,uint8]
         magic:      array[2,uint8] = [0x55, 0xaa]
 
