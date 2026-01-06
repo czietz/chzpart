@@ -33,31 +33,6 @@ when useDiskImage:
 when defined(atari):
     proc Tgettime(): clong {.header: "<osbind.h>".}
 
-# we have to use libcmini's "struct stat" from "ext.h", but Nim
-# will try to use MiNTLib's incompatible definition in "sys/stat.h"
-when defined(libcmini):
-    type
-        Off {.importc: "size_t", header: "<stddef.h>"} = clong
-        Stat {.importc: "struct stat", header: "<ext.h>"} = object
-            st_size: Off
-
-    proc stat(a1: cstring, a2: var Stat): cint {.importc, header: "<ext.h>".}
-
-    proc getFileSize(file: string): BiggestInt =
-        var rawInfo: Stat = default(Stat)
-        if stat(file, rawInfo) < 0'i32:
-            raiseOSError(osLastError(), file)
-        rawInfo.st_size
-
-    # don't rely on stat() for checking file existence
-    proc fileExists(file: string): bool =
-        try:
-            let tmpFile = open(file, mode = fmRead)
-            tmpFile.close()
-            return true
-        except IOError:
-            return false
-
 # on Atari, we use Cconrs for better line editing
 when defined(atari):
     type
