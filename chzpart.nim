@@ -31,7 +31,7 @@ when useDiskImage:
     import std/cmdline
 
 when defined(atari):
-    proc Tgettime(): clong {.header: "<osbind.h>".}
+    proc Random(): clong {.header: "<osbind.h>".}
 
 # on Atari, we use Cconrs for better line editing
 when defined(atari):
@@ -575,8 +575,8 @@ echo CopyrightBanner
 echo ""
 
 when defined(atari):
-    # Atari does not have a system RNG for seeding
-    randomize(Tgettime())
+    # use XBIOS random generator to seed Nim random generator
+    randomize(Random())
 else:
     randomize()
 
