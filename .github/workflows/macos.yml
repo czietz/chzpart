@@ -1,0 +1,29 @@
+name: Automatic snapshot build (macOS)
+
+on:
+  push:
+    branches: [ master ]
+
+jobs:
+  buildmac:
+
+    # macOS on Apple Silicon
+    runs-on: macos-latest
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - name: Install Nim
+      run: |
+        pwd
+        brew install nim
+    - name: Build program
+      run: |
+        nim c -d:release -d:strip chzpart.nim
+    - name: Save binaries as build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: chzpart-${{github.sha}}
+        path: |
+          chzpart
