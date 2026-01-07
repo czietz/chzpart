@@ -118,7 +118,7 @@ jobs:
     - name: Display structure of downloaded files
       run: ls -R binaries
     - name: Make release zip file
-      run: zip -r -9 chzpart-`date -I`.zip README.md COPYING binaries
+      run: zip -r -9 chzpart-`date -I`.zip README.md COPYING atari-mk-hd-image.sh binaries
     - name: Save binaries as pre-release
       uses: "czietz/action-automatic-releases@latest"
       with:

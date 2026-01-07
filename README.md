@@ -1,6 +1,6 @@
 # CHZ Atari Disk Partitioning Tool
 
-**Version 0.1**
+**Version 0.2**
 
 ## Overview
 
@@ -36,8 +36,8 @@ The tool allows you to create a new partition layout and initialize partitions w
 
 ### On Atari Systems
 
-* Run `CHZPART.TOS`  on Atari ST/STE/TT/Falcon or compatible systems
-* Run `CHZPA_CF.TOS` on the Firebee
+* Run `68000/CHZPART.TOS`  on Atari ST/STE/TT/Falcon or compatible systems
+* Run `FIREBEE/CHZPART.TOS` on the Firebee
 
 ### On Non-Atari Systems
 
@@ -163,7 +163,9 @@ A progress message is shown while the disk is being partitioned.
 
 * Atari partitions (supported by EmuTOS and Atari TOS 1.04 and above) are limited to **511 MiB**
 * MS-DOS partitions (supported by EmuTOS, too) are limited to **2047 MiB**
+* Hybrid “TOS & Windows” partitioning schemes are deliberately not supported as they tend to cause subtle incompatibilities, e.g., on Linux
 * **FAT16** is used for maximum compatibility
+* Other file systems (ext2, FAT32, …) are deliberately not supported to keep the tool simple to use
 * The tool is intended for **initial disk setup**, not resizing existing partitions
 
 ---
