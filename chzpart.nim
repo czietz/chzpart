@@ -314,7 +314,7 @@ type
 # convert a LBA to CHS, using an assumed fake geometry
 # Atari does not care about CHS, but some disk editing tools might complain
 # if the CHS values don't look sensible
-proc LBA2CHS(lba: int): array[3,uint8] =
+func LBA2CHS(lba: int): array[3,uint8] =
     const SectorsPerTrack = 63 # maximum permitted value
     const NumberOfHeads = 256 # maximum permitted value
     let Temp = lba div SectorsPerTrack
@@ -328,7 +328,7 @@ proc LBA2CHS(lba: int): array[3,uint8] =
     else:
         result = [0xff,0xff,0xff] # cannot be represented as CHS
 
-proc fillDOSPart(p: var DOSPart, start: int, length: int, extended: bool = false) =
+func fillDOSPart(p: var DOSPart, start: int, length: int, extended: bool = false) =
     p.part_type = (if not extended: 0x06 else: 0x05) # FAT16 or extended partition
     p.lba_start = uint32(start)
     p.lba_size = uint32(length)
@@ -337,7 +337,7 @@ proc fillDOSPart(p: var DOSPart, start: int, length: int, extended: bool = false
     p.chs_start = LBA2CHS(start)
     p.chs_end = LBA2CHS(start+length-1)
 
-proc fillAtariPart(p: var AtariPart, start: int, length: int, extended: bool = false) =
+func fillAtariPart(p: var AtariPart, start: int, length: int, extended: bool = false) =
     p.active = 1
     if extended:
         p.part_type = ['X','G','M']
@@ -638,7 +638,7 @@ if unitChoice.isNone:
     quit(1)
 let unit = unitChoice.get()
 
-let menu_type = @[MenuItem(val: ord(TypeDOS), key: 'M', text: "MS-DOS", help: "Compatible with EmuTOS, Windows, Linux, macOS"),
+let menu_type =  [MenuItem(val: ord(TypeDOS), key: 'M', text: "MS-DOS", help: "Compatible with EmuTOS, Windows, Linux, macOS"),
                   MenuItem(val: ord(TypeAtari), key: 'A', text: "Atari", help: "Compatible with EmuTOS, Atari TOS 1.04 and above")]
 
 let partChoice = displayMenu("Select partition type", menu_type)
@@ -653,7 +653,7 @@ var swapBytes = false
 when not useDiskImage:
     let bus = unit div 8
     if isEmuTOS() and (partType == TypeDOS) and (bus == 2): # IDE bus
-        let menu_swap = @[MenuItem(val: int(true), key: 'Y', text: "Activate byte swapping", help: "On 'dumb' IDE interfaces, this facilitates data exchange"),
+        let menu_swap =  [MenuItem(val: int(true), key: 'Y', text: "Activate byte swapping", help: "On 'dumb' IDE interfaces, this facilitates data exchange"),
                           MenuItem(val: int(false), key: 'N', text: "Deactivate byte swapping", help: "Recommended for best performance")]
         let swapChoice = displayMenu("IDE byte-swapping", menu_swap)
         if swapChoice.isNone:
@@ -692,7 +692,7 @@ for k in 1..numPart:
     startPart = startPart + sizeSect
 
 # Ask the user to confirm partition creation
-let menu_confirm = @[MenuItem(val: int(true), key: 'Y', text: "Partition: " & diskName, help: "This deletes the existing disk content!"),
+let menu_confirm =  [MenuItem(val: int(true), key: 'Y', text: "Partition: " & diskName, help: "This deletes the existing disk content!"),
                      MenuItem(val: int(false), key: 'N', text: "Discard changes and exit program")]
 let confirmChoice = displayMenu("Confirm disk partitioning", menu_confirm, implicitquit = false)
 if confirmChoice.isNone or not bool(confirmChoice.get()):
