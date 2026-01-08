@@ -13,6 +13,8 @@ import std/endians
 import std/random
 import std/assertions
 
+### GLOBAL VARIABLES AND TYPES ###
+
 const ProgramBanner   = "CHZ Atari Disk Partitioning Tool - "
 when defined(avoidGit):
     const GitBanner   = "(local)"
@@ -21,6 +23,12 @@ else:
 const CopyrightBanner = "(C) 2026 Christian Zietz <czietz@gmx.net>\n" &
                         "This program is free software; you can redistribute it and/or modify\n" &
                         "it under the terms of the GNU General Public License."
+
+type PartitionType = enum TypeDOS, TypeAtari
+
+type TOSSupport = enum TOS100, TOS104, TOS404
+
+const maxSizeTOS = [TOS100: 255, TOS104: 511, TOS404: 1023]
 
 ### LIBCMINI / ATARI STUBBING CODE ###
 
@@ -351,9 +359,12 @@ func fillAtariPart(p: var AtariPart, start: int, length: int, extended: bool = f
     bigEndian32(addr p.lba_start, addr p.lba_start)
     bigEndian32(addr p.lba_size, addr p.lba_size)
 
-proc createMBR(unit: int, parts: var openArray[Partition], diskSize: int, atari: bool, byteswap: bool) =
+proc createMBR(unit: int, parts: var openArray[Partition], diskSize: int, tos: Option[TOSSupport], byteswap: bool) =
 
     var MBR: Sector
+
+    # whether to create Atari or DOS MBR
+    let atari = tos.isSome()
 
     # when more than 4 partitions are requested, create extended partitions
     let numParts = parts.len
@@ -465,16 +476,24 @@ type
         filler:     array[448,uint8]
         magic:      array[2,uint8] = [0x55, 0xaa]
 
-proc createFAT16(unit:int, part: Partition, atari: bool, byteswap: bool) =
+proc createFAT16(unit:int, part: Partition, tos: Option[TOSSupport], byteswap: bool) =
+
+    # whether to create Atari-compatible file system
+    let atari = tos.isSome()
+
     var b = FATBoot()
 
     # find the smallest cluster size that results in max amount of clusters
     var clustersize = 2
-    let maxclusters = (if not atari:
-                         65524 # according to MS FAT spec
-                       else:
-                         32766 # according to HDDRIVER
-                      )
+    let maxclusters = if atari:
+                        (case tos.get():
+                            of TOS100:
+                                16382
+                            of TOS104, TOS404:
+                                32766
+                        )
+                      else: 65524 # according to MS FAT spec
+
     while part.length div clustersize > maxclusters:
         clustersize = clustersize shl 1
 
@@ -519,10 +538,12 @@ proc createFAT16(unit:int, part: Partition, atari: bool, byteswap: bool) =
         doAssert((logsec == 1) and (int(b.bps) == 512), "invalid logical sector size")
         doAssert(clustersize <= 64, "invalid cluster size")
     else:
-        # TOS 1.04 and above
         doAssert(b.numfat == 2, "invalid number of FATs")
         doAssert(b.spc == 2, "invalid number of sectors per cluster")
-        doAssert(logsec <= 16, "logical sector size too large")
+        if tos.get() == TOS404:
+            doAssert(logsec <= 32, "logical sector size too large")
+        else:
+            doAssert(logsec <= 16, "logical sector size too large")
         doAssert(b.numsect32 == 0, "Atari partition with more than 65535 log. sectors")
         doAssert(int(b.numroot) <= 1008, "root directory too large")
 
@@ -567,8 +588,6 @@ proc createFAT16(unit:int, part: Partition, atari: bool, byteswap: bool) =
     diskWrite(unit, 0, s, byteswap, some(part))
 
 ### MAIN FUNCTION CODE ###
-
-type PartitionType = enum TypeDOS, TypeAtari
 
 echo ProgramBanner & GitBanner
 echo CopyrightBanner
@@ -638,13 +657,21 @@ if unitChoice.isNone:
     quit(1)
 let unit = unitChoice.get()
 
-let menu_type =  [MenuItem(val: ord(TypeDOS), key: 'M', text: "MS-DOS", help: "Compatible with EmuTOS, Windows, Linux, macOS"),
-                  MenuItem(val: ord(TypeAtari), key: 'A', text: "Atari", help: "Compatible with EmuTOS, Atari TOS 1.04 and above")]
+# menu and mapping must be in the same order!
+let menu_mapping = [(TypeDOS, none(TOSSupport)), # 0
+                    (TypeAtari, some(TOS104)),   # 1
+                    (TypeAtari, some(TOS100)),   # 2
+                    (TypeAtari, some(TOS404))]   # 3
+let menu_type =  [MenuItem(val: 0, key: 'M', text: "MS-DOS", help: "Compatible with EmuTOS, Windows, Linux, macOS"),
+                  MenuItem(val: 1, key: 'A', text: "Atari TOS >= 1.04", help: "Compatible with EmuTOS, Atari TOS 1.04 and above"),
+                  MenuItem(val: 2, key: 'B', text: "Atari TOS >= 1.00", help: "Compatible with EmuTOS, Atari TOS (all versions)"),
+                  MenuItem(val: 3, key: 'C', text: "Atari TOS >= 4.04", help: "Compatible with EmuTOS, Atari TOS 4.04 only")]
 
 let partChoice = displayMenu("Select partition type", menu_type)
 if partChoice.isNone:
     quit(1)
-let partType = PartitionType(partChoice.get())
+
+let (partType,tosType) = menu_mapping[partChoice.get()]
 
 # under EmuTOS one can control byte-swapping by the disk driver during XHReadWrite
 # ... so the byte-swapping is entirely under control of this program and one can
@@ -677,8 +704,8 @@ for k in 1..numPart:
 
     # maximum size for this partition
     var maxSize = ((diskSize - startPart) div SectPerMiB) - (minSize * (numPart-k))
-    if (partType == TypeAtari) and (maxSize > 511):
-        maxSize = 511
+    if (partType == TypeAtari) and (maxSize > maxSizeTOS[tosType.get()]):
+        maxSize = maxSizeTOS[tosType.get()]
     if (partType == TypeDOS) and (maxSize > 2047):
         maxSize = 2047
 
@@ -702,9 +729,9 @@ stdout.write "Partitioning disk... "
 stdout.flushFile()
 
 # Partiton the disk and create file systems
-createMBR(unit, parts, diskSize, atari = (partType == TypeAtari), swapBytes)
+createMBR(unit, parts, diskSize, tosType, swapBytes)
 for part in parts:
-    createFAT16(unit, part, atari = (partType == TypeAtari), swapBytes)
+    createFAT16(unit, part, tosType, swapBytes)
 
 echo "done!"
 
