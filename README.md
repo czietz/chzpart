@@ -90,12 +90,24 @@ You can choose between:
     * Windows
     * Linux
     * macOS
-* **Atari**
-
+* **Atari  TOS 1.04 and above**
   * Compatible with:
 
     * EmuTOS
-    * Atari TOS 1.04 and later
+    * Atari TOS 1.04 and above
+  * Maximum partition size **512 MiB**
+* **Atari  TOS 1.00 and above**
+  * Compatible with:
+
+    * EmuTOS
+    * All versions of Atari TOS
+  * Maximum partition size **256 MiB**
+* **Atari  TOS 4.04 and above**
+  * Compatible with:
+
+    * EmuTOS
+    * Atari TOS 4.04 (for the Atari Falcon)
+  * Maximum partition size **1024 MiB**
 
 Choose the type that best matches how the disk will be used.
 
@@ -161,7 +173,7 @@ A progress message is shown while the disk is being partitioned.
 
 ## Limits and Notes
 
-* Atari partitions (supported by EmuTOS and Atari TOS 1.04 and above) are limited to **511 MiB**
+* Atari partitions (supported by EmuTOS and Atari TOS) are limited to **256, 512 or 1024 MiB** depending on the version of Atari TOS.
 * MS-DOS partitions (supported by EmuTOS, too) are limited to **2047 MiB**
 * Hybrid “TOS & Windows” partitioning schemes are deliberately not supported as they tend to cause subtle incompatibilities, e.g., on Linux
 * **FAT16** is used for maximum compatibility
