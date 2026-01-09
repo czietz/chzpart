@@ -28,7 +28,7 @@ type PartitionType = enum TypeDOS, TypeAtari
 
 type TOSSupport = enum TOS100, TOS104, TOS404
 
-const maxSizeTOS = [TOS100: 255, TOS104: 511, TOS404: 1023]
+const maxSizeTOS = [TOS100: 256, TOS104: 512, TOS404: 1024]
 
 ### LIBCMINI / ATARI STUBBING CODE ###
 
@@ -713,7 +713,13 @@ for k in 1..numPart:
     let sizeChoice = getNumber("Size of " & partWord & " partition in MiB", minSize, maxSize)
     if sizeChoice.isNone:
         quit(1)
-    let sizeSect = sizeChoice.get() * SectPerMiB
+    var sizeSect = sizeChoice.get() * SectPerMiB
+
+    if (partType == TypeAtari) and (sizeChoice.get() == maxSizeTOS[tosType.get()]):
+        # a TOS partition can have max. 64 sectors per cluster
+        # need to subtract two clusters to reach the absolute maximum size
+        sizeSect = sizeSect - 128
+
     let part = Partition(start: startPart, length: sizeSect)
     parts.add(part)
     startPart = startPart + sizeSect
