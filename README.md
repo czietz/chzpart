@@ -90,6 +90,7 @@ You can choose between:
     * Windows
     * Linux
     * macOS
+  * Maximum partition size **2047 MiB**
 * **Atari  TOS 1.04 and above**
   * Compatible with:
 
