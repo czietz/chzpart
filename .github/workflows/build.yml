@@ -115,10 +115,16 @@ jobs:
       with:
         path: binaries
         merge-multiple: true
+    - name: Install DEB packages
+      run: |
+        sudo apt-get update
+        sudo apt-get install pandoc
     - name: Display structure of downloaded files
       run: ls -R binaries
+    - name: Generate plain text README
+      run: pandoc -s README.md -t plain | iconv -f utf8 -t ascii//translit > README.txt
     - name: Make release zip file
-      run: zip -r -9 chzpart-`date -I`.zip README.md COPYING atari-mk-hd-image.sh binaries
+      run: zip -r -9 chzpart-`date -I`.zip README.md README.txt COPYING atari-mk-hd-image.sh binaries
     - name: Save binaries as pre-release
       uses: "czietz/action-automatic-releases@latest"
       with:
