@@ -118,11 +118,11 @@ jobs:
     - name: Install DEB packages
       run: |
         sudo apt-get update
-        sudo apt-get install pandoc
+        sudo apt-get install pandoc dos2unix
     - name: Display structure of downloaded files
       run: ls -R binaries
     - name: Generate plain text README
-      run: pandoc -s README.md -t plain | iconv -f utf8 -t ascii//translit > README.txt
+      run: pandoc -s README.md -t plain | iconv -f utf8 -t ascii//translit | unix2dos > README.txt
     - name: Make release zip file
       run: zip -r -9 chzpart-`date -I`.zip README.md README.txt COPYING atari-mk-hd-image.sh binaries
     - name: Save binaries as pre-release
