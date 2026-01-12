@@ -3,6 +3,7 @@ name: Automatic snapshot build
 on:
   push:
     branches: [ master ]
+    tags: [ "V.*" ]
 
 jobs:
 
@@ -61,6 +62,8 @@ jobs:
     - name: Build program
       run: |
         pwd
+        # delete automatic 'latest' tag so that included version number is nicer
+        git tag -d latest
         export LIBCMINI="$(pwd)/libcmini"
         nim c --cpu:m68k --os:atari --out:dist/68000/chzpart.tos -d:libcmini -d:mintelf -d:release -d:lto -d:strip chzpart.nim
         nim c --cpu:m68k --os:atari --out:dist/firebee/chzpart.tos -d:libcmini -d:mintelf -d:coldfire -d:release -d:lto -d:strip chzpart.nim
@@ -92,6 +95,8 @@ jobs:
         brew install nim
     - name: Build program
       run: |
+        # delete automatic 'latest' tag so that included version number is nicer
+        git tag -d latest
         mkdir -p dist/macos-arm64
         nim c --outdir:dist/macos-arm64/ -d:release -d:strip chzpart.nim
     - name: Save binaries as build artifacts
@@ -125,12 +130,24 @@ jobs:
       run: pandoc -s README.md -t plain | iconv -f utf8 -t ascii//translit | unix2dos > README.txt
     - name: Make release zip file
       run: zip -r -9 chzpart-`date -I`.zip README.md README.txt COPYING atari-mk-hd-image.sh binaries
-    - name: Save binaries as pre-release
+
+    - name: Save binaries as snapshot release
+      if: github.ref_type != 'tag'
       uses: "czietz/action-automatic-releases@latest"
       with:
         repo_token: "${{ secrets.GITHUB_TOKEN }}"
         automatic_release_tag: "latest"
         prerelease: false
         title: "Latest snapshot build"
+        files: |
+          chzpart-*.zip
+
+    - name: Save tagged binaries as release
+      if: github.ref_type == 'tag'
+      uses: "czietz/action-automatic-releases@latest"
+      with:
+        repo_token: "${{ secrets.GITHUB_TOKEN }}"
+        automatic_release_tag: "${{ github.ref_name }}"
+        prerelease: false
         files: |
           chzpart-*.zip
