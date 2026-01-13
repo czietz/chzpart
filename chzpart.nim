@@ -85,7 +85,7 @@ when defined(atari):
 
     # cache result
     proc isEmuTOS(): bool =
-        var check {.global.} = checkEmuTOS()
+        let check {.global.} = checkEmuTOS()
         return check
 
 
@@ -176,7 +176,7 @@ proc getNumber(prompt: string, min: int, max: int, implicitquit = true): Option[
                 return  # without return value
 
         try:
-            var number = choice.parseInt()
+            let number = choice.parseInt()
             if (number >= min) and (number <= max):
                 return some(number)
         except:
