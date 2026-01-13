@@ -322,13 +322,13 @@ type
 # convert a LBA to CHS, using an assumed fake geometry
 # Atari does not care about CHS, but some disk editing tools might complain
 # if the CHS values don't look sensible
+const CHSSectorsPerTrack = 63 # maximum permitted value
+const CHSNumberOfHeads = 256 # maximum permitted value
 func LBA2CHS(lba: int): array[3,uint8] =
-    const SectorsPerTrack = 63 # maximum permitted value
-    const NumberOfHeads = 256 # maximum permitted value
-    let Temp = lba div SectorsPerTrack
-    let Sector = (lba mod SectorsPerTrack) + 1
-    let Head = Temp mod NumberOfHeads
-    let Cylinder = Temp div NumberOfHeads
+    let Temp = lba div CHSSectorsPerTrack
+    let Sector = (lba mod CHSSectorsPerTrack) + 1
+    let Head = Temp mod CHSNumberOfHeads
+    let Cylinder = Temp div CHSNumberOfHeads
 
     if Cylinder <= 1023: # maximum permitted value
         # encode it for MBR (PC BIOS INT13h)
@@ -463,8 +463,8 @@ type
         numsect:    uint16 = 0
         mediatype:  uint8 = 0xF8
         spf:        uint16
-        spt:        uint16 = 31  # dummy
-        numhead:    uint16 = 255  # dummy
+        spt:        uint16 = CHSSectorsPerTrack
+        numhead:    uint16 = CHSNumberOfHeads-1
         hidden32:   uint32
         numsect32:  uint32 = 0
         disknum:    uint8 = 0x80
