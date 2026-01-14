@@ -1,6 +1,6 @@
 # CHZ Atari Disk Partitioning Tool
 
-**Version 0.2**
+**Version 0.3**
 
 ## Overview
 
