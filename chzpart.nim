@@ -44,7 +44,7 @@ when defined(atari):
 # on Atari, we use Cconrs for better line editing
 when defined(atari):
     type
-        Line {.importc: "_CCONLINE", header: "<osbind.h>"} = object
+        Line {.importc: "_CCONLINE", header: "<osbind.h>".} = object
             maxlen: int
             actuallen: int
             buffer: array[255,char]
@@ -92,12 +92,12 @@ when defined(atari):
 ### XHDI LIBRARY ###
 
 when defined(atari):
-    {.compile: "xhdi.c"}
+    {.compile: "xhdi.c".}
 
-    proc XHGetVersion(): clong {.importc, header: "xhdi.h"}
-    proc XHInqTarget(major: cushort, minor: cushort, blksize: ptr[culong], flags: ptr[culong], name: cstring): clong {.importc, header: "xhdi.h"}
-    proc XHGetCapacity(major: cushort, minor: cushort, blocks: ptr[culong], blksize: ptr[culong]): clong {.importc, header: "xhdi.h"}
-    proc XHReadWrite(major: cushort, minor: cushort, rwflag: cushort, recno: culong, count: cushort, buf: pointer): clong {.importc, header: "xhdi.h"}
+    proc XHGetVersion(): clong {.importc, header: "xhdi.h".}
+    proc XHInqTarget(major: cushort, minor: cushort, blksize: ptr[culong], flags: ptr[culong], name: cstring): clong {.importc, header: "xhdi.h".}
+    proc XHGetCapacity(major: cushort, minor: cushort, blocks: ptr[culong], blksize: ptr[culong]): clong {.importc, header: "xhdi.h".}
+    proc XHReadWrite(major: cushort, minor: cushort, rwflag: cushort, recno: culong, count: cushort, buf: pointer): clong {.importc, header: "xhdi.h".}
 
 
 ### HELPER FUNCTIONS ###
@@ -106,10 +106,10 @@ when defined(atari):
 # e.g. converts "ABC" to ['A','B','C']
 
 template toArr(s: static[string]): untyped =
-  var arr: array[s.len,char]
-  for i in 0 ..< s.len:
-    arr[i] = s[i]
-  arr
+    var arr: array[s.len,char]
+    for i in 0 ..< s.len:
+        arr[i] = s[i]
+    arr
 
 
 ### MENU CODE ###
