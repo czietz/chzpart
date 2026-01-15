@@ -336,8 +336,14 @@ func LBA2CHS(lba: int): array[3,uint8] =
     else:
         result = [0xff,0xff,0xff] # cannot be represented as CHS
 
-func fillDOSPart(p: var DOSPart, start: int, length: int, extended: bool = false) =
-    p.part_type = (if not extended: 0x06 else: 0x05) # FAT16 or extended partition
+type
+    DOSPart_Type = uint8
+const
+    DOSPart_FAT16: DOSPart_Type = 0x06
+    DOSPart_Extended: DOSPart_Type = 0x05
+
+func fillDOSPart(p: var DOSPart, start: int, length: int, parttype = DOSPart_FAT16) =
+    p.part_type = parttype
     p.lba_start = uint32(start)
     p.lba_size = uint32(length)
     littleEndian32(addr p.lba_start, addr p.lba_start)
@@ -345,15 +351,18 @@ func fillDOSPart(p: var DOSPart, start: int, length: int, extended: bool = false
     p.chs_start = LBA2CHS(start)
     p.chs_end = LBA2CHS(start+length-1)
 
-func fillAtariPart(p: var AtariPart, start: int, length: int, extended: bool = false) =
+type AtariPart_Type = array[3,char]
+const
+    AtariPart_FAT16: AtariPart_Type = ['B','G','M']
+    AtariPart_FAT16_small: AtariPart_Type = ['G','E','M']   # less than 16 MB
+    AtariPart_Extended: AtariPart_Type = ['X','G','M']
+
+func fillAtariPart(p: var AtariPart, start: int, length: int, parttype = AtariPart_FAT16) =
     p.active = 1
-    if extended:
-        p.part_type = ['X','G','M']
-    else:
-        if length >= 16*SectPerMiB:
-            p.part_type = ['B','G','M']
-        else:
-            p.part_type = ['G','E','M']
+    p.part_type = parttype
+    if (length < 16*SectPerMiB) and (parttype == AtariPart_FAT16):
+        p.part_type = AtariPart_FAT16_small
+
     p.lba_start = uint32(start)
     p.lba_size = uint32(length)
     bigEndian32(addr p.lba_start, addr p.lba_start)
@@ -380,7 +389,8 @@ proc createMBR(unit: int, parts: var openArray[Partition], diskSize: int, tos: O
             fillDOSPart(m.parttable[k], start=parts[k].start, length=parts[k].length)
         if doExtended:
             # spans the entire remaining length of the disk
-            fillDOSPart(m.parttable[3], start=parts[3].start, length=diskSize - parts[3].start, extended=true)
+            fillDOSPart(m.parttable[3], start=parts[3].start, length=diskSize - parts[3].start,
+                        parttype=DOSPart_Extended)
 
         MBR = cast[Sector](m)
     else:
@@ -392,7 +402,8 @@ proc createMBR(unit: int, parts: var openArray[Partition], diskSize: int, tos: O
             fillAtariPart(m.parttable[k], start=parts[k].start, length=parts[k].length)
         if doExtended:
             # spans the entire remaining length of the disk
-            fillAtariPart(m.parttable[3], start=parts[3].start, length=diskSize - parts[3].start, extended=true)
+            fillAtariPart(m.parttable[3], start=parts[3].start, length=diskSize - parts[3].start,
+                          parttype=AtariPart_Extended)
 
         # calculate checksum so that MBR is NOT bootable
         let MBR2 = cast[array[256,uint16]](m)
@@ -429,7 +440,7 @@ proc createMBR(unit: int, parts: var openArray[Partition], diskSize: int, tos: O
                     # another extended partition follows?
                     fillDOSPart(m.parttable[1], start=parts[k+1].start - extendedStart, # relative to the first extended boot record!
                                                 length=diskSize - parts[k+1].start, # spans remaining length of disk
-                                                extended=true)
+                                                parttype=DOSPart_Extended)
 
                 MBR = cast[Sector](m)
 
@@ -443,7 +454,7 @@ proc createMBR(unit: int, parts: var openArray[Partition], diskSize: int, tos: O
                     # another extended partition follows?
                     fillAtariPart(m.parttable[1], start=parts[k+1].start - extendedStart, # relative to the first extended boot record!
                                                   length=diskSize - parts[k+1].start, # spans remaining length of disk
-                                                  extended=true)
+                                                  parttype=AtariPart_Extended)
 
                 MBR = cast[Sector](m)
 
