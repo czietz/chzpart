@@ -13,6 +13,10 @@ import std/endians
 import std/random
 import std/assertions
 
+# include pre-compiled Windows resource file
+when defined(mingw):
+    {.link: "chzpart.res".}
+
 ### GLOBAL VARIABLES AND TYPES ###
 
 const ProgramBanner   = "CHZ Atari Disk Partitioning Tool - "
