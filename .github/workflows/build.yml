@@ -68,8 +68,6 @@ jobs:
         nim c --cpu:m68k --os:atari --out:dist/68000/chzpart.tos -d:libcmini -d:mintelf -d:release -d:lto -d:strip chzpart.nim
         nim c --cpu:m68k --os:atari --out:dist/firebee/chzpart.tos -d:libcmini -d:mintelf -d:coldfire -d:release -d:lto -d:strip chzpart.nim
         nim c --outdir:dist/linux-x64/ -d:release -d:strip chzpart.nim
-        # compile Windows resource file
-        x86_64-w64-mingw32-windres chzpart.rc -O coff -o chzpart.res
         nim c --outdir:dist/windows/ -d:mingw -d:release -d:strip chzpart.nim
         nim c --cpu:arm64 --outdir:dist/linux-arm64/ -d:release -d:strip chzpart.nim
         upx dist/68000/chzpart.tos
