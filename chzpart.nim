@@ -12,6 +12,7 @@ import std/options
 import std/endians
 import std/random
 import std/assertions
+import std/cmdline
 
 ### GLOBAL VARIABLES AND TYPES ###
 
@@ -34,9 +35,6 @@ const maxSizeTOS = [TOS100: 256, TOS104: 512, TOS404: 1024]
 
 # use disk-image on non-Atari platform
 const useDiskImage {.booldefine.}: bool = not defined(atari)
-
-when useDiskImage:
-    import std/cmdline
 
 when defined(atari):
     proc Random(): clong {.header: "<osbind.h>".}
@@ -100,7 +98,7 @@ when defined(atari):
     proc XHReadWrite(major: cushort, minor: cushort, rwflag: cushort, recno: culong, count: cushort, buf: pointer): clong {.importc, header: "xhdi.h".}
 
 
-### HELPER FUNCTIONS ###
+### HELPER FUNCTIONS AND VARIABLES ###
 
 # evaluated at compile-time!
 # e.g. converts "ABC" to ['A','B','C']
@@ -111,6 +109,8 @@ template toArr(s: static[string]): untyped =
         arr[i] = s[i]
     arr
 
+# command line handling
+var params: seq[string]
 
 ### MENU CODE ###
 
@@ -202,12 +202,12 @@ when useDiskImage:
 
     proc getDiskSize(unit: int): int =
         # write to file
-        let fz = int(getFileSize(paramStr(1)) div SectSize)
+        let fz = int(getFileSize(params[0]) div SectSize)
         return fz
 
     proc getDiskName(unit: int): Option[string] =
         # write to file
-        some(fmt"Disk image '{paramStr(1)}'")
+        some(fmt"Disk image '{params[0]}'")
 
     proc getAvailableDisks(menu_disk: var seq[MenuItem]) =
         # write to file
@@ -273,7 +273,7 @@ proc diskWrite(unit: int, sectNum: int, sectData: Sector, byteswap: bool, partit
 
     when useDiskImage:
         # write to file
-        let tmpFile = open(paramStr(1), mode = fmReadWriteExisting)
+        let tmpFile = open(params[0], mode = fmReadWriteExisting)
         tmpFile.setFilePos(realSectNum * SectSize)
         let numWritten = tmpFile.writeBuffer(addr realSectData, SectSize)
         if numWritten != SectSize:
@@ -610,34 +610,43 @@ when defined(atari):
 else:
     randomize()
 
+# check if first command-line parameter is '-x'
+# and enable expert mode accordingly
+params = commandLineParams()
+let expertmode = (params.len >= 1) and (params[0] == "-x")
+if expertmode:
+    params.delete(0)
+
 when useDiskImage:
+
     #  Write to file
-    if paramCount() < 1:
+    if params.len < 1:
         let exename = splitPath(getAppFilename()).tail
         echo "Usage:"
-        echo fmt"To use an existing image: {exename} disk_image.img"
-        echo fmt"To create a new image:    {exename} disk_image.img size_in_MiB"
+        echo fmt"To use an existing image: {exename} [-x] disk_image.img"
+        echo fmt"To create a new image:    {exename} [-x] disk_image.img size_in_MiB"
+        echo "Optional argument -x enables expert mode."
         quit(1)
 
-    if paramCount() == 1:
-        if not fileExists(paramStr(1)):
-            echo fmt"Cannot open disk image file '{paramStr(1)}'!"
+    if params.len == 1:
+        if not fileExists(params[0]):
+            echo fmt"Cannot open disk image file '{params[0]}'!"
             quit(1)
 
-    if paramCount() > 1:
-        if fileExists(paramStr(1)):
-            echo fmt"Disk image file '{paramStr(1)}' already exists!"
+    if params.len > 1:
+        if fileExists(params[0]):
+            echo fmt"Disk image file '{params[0]}' already exists!"
             quit(1)
 
         # write to file
         var fileSize: int
         try:
-            fileSize = parseInt(paramStr(2)) * 1024*1024
+            fileSize = parseInt(params[1]) * 1024*1024
         except ValueError:
-            echo fmt"Illegal size '{paramStr(2)}'!"
+            echo fmt"Illegal size '{params[1]}'!"
             quit(1)
 
-        let tmpFile = open(paramStr(1), mode = fmWrite)
+        let tmpFile = open(params[0], mode = fmWrite)
         tmpFile.setFilePos(fileSize - SectSize)
         let numWritten = tmpFile.writeBuffer(addr zeroSector, SectSize)
         if numWritten != SectSize:
