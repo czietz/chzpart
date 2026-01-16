@@ -38,20 +38,23 @@ The tool allows you to create a new partition layout and initialize partitions w
 
 * Run `68000/CHZPART.TOS`  on Atari ST/STE/TT/Falcon or compatible systems
 * Run `FIREBEE/CHZPART.TOS` on the Firebee
+* For *expert mode*, run `CHZPART.TOS -x`. 
 
 ### On Non-Atari Systems
 
 #### Using an Existing Disk Image
 
 ```text
-chzpart disk_image.img
+chzpart [-x] disk_image.img
 ```
 
 #### Creating a New Disk Image
 
 ```text
-chzpart disk_image.img size_in_MiB
+chzpart [-x] disk_image.img size_in_MiB
 ```
+
+The optional switch `-x` enables *expert mode*.
 
 Example:
 
@@ -149,7 +152,20 @@ The tool:
 
 ---
 
-### 6. Confirmation
+### 6. Partition ID (expert mode only)
+
+When run in *expert mode*, optionally enter an ID (type) for each partition. 
+
+* For MS-DOS partitions, IDs must be entered as hexadecimal number (e.g., `0c`). 
+* For Atari partitions, IDs must be entered as three characters (e.g., `F32`).
+
+Just press Enter to use the default ID for a FAT16 file system.
+
+⚠️ The tool does not create a file system on partitions with user-selected IDs. After partitioning, use a suitable tool to create the file system. For example, `mkfatfs`, `mke2fs` or `minit` under FreeMiNT. 
+
+---
+
+### 7. Confirmation
 
 Before any changes are written, you must confirm:
 
@@ -167,6 +183,7 @@ When confirmed, the program will:
 1. Create a new partition table
 2. Initialize each partition
 3. Create a **FAT16 file system** on each partition
+   (unless a custom partition ID has been assigned in *expert mode*)
 
 A progress message is shown while the disk is being partitioned.
 
@@ -178,7 +195,7 @@ A progress message is shown while the disk is being partitioned.
 * MS-DOS partitions (supported by EmuTOS, too) are limited to **2047 MiB**
 * Hybrid “TOS & Windows” partitioning schemes are deliberately not supported as they tend to cause subtle incompatibilities, e.g., on Linux
 * **FAT16** is used for maximum compatibility
-* Other file systems (ext2, FAT32, …) are deliberately not supported to keep the tool simple to use
+* Other file systems (ext2, FAT32, …) must be created with separate tools
 * The tool is intended for **initial disk setup**, not resizing existing partitions
 
 ---
