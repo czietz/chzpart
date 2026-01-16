@@ -31,6 +31,18 @@ type TOSSupport = enum TOS100, TOS104, TOS404
 
 const maxSizeTOS = [TOS100: 256, TOS104: 512, TOS404: 1024]
 
+type
+    DOSPart_ID = uint8
+    AtariPart_ID = array[3,char]
+
+    UnionPart_ID = object
+        case kind: PartitionType
+        of TypeAtari: a: AtariPart_ID
+        of TypeDOS: m: DOSPart_ID
+
+# command line handling
+var params: seq[string]
+
 ### LIBCMINI / ATARI STUBBING CODE ###
 
 # use disk-image on non-Atari platform
@@ -98,7 +110,7 @@ when defined(atari):
     proc XHReadWrite(major: cushort, minor: cushort, rwflag: cushort, recno: culong, count: cushort, buf: pointer): clong {.importc, header: "xhdi.h".}
 
 
-### HELPER FUNCTIONS AND VARIABLES ###
+### HELPER FUNCTIONS ###
 
 # evaluated at compile-time!
 # e.g. converts "ABC" to ['A','B','C']
@@ -109,8 +121,18 @@ template toArr(s: static[string]): untyped =
         arr[i] = s[i]
     arr
 
-# command line handling
-var params: seq[string]
+
+# takes an Atari or DOS partition ID and wraps it in a 'union'
+template mkPartID(x: AtariPart_ID): Option[UnionPart_ID] = some(UnionPart_ID(kind: TypeAtari, a: x))
+template mkPartID(x: DOSPart_ID): Option[UnionPart_ID] = some(UnionPart_ID(kind: TypeDOS, m: x))
+
+# convert a partition ID to a suitable string representation
+func `$`(p: UnionPart_ID): string {.used.} =
+    case p.kind:
+        of TypeDOS:
+            result = p.m.toHex(2)
+        of TypeAtari:
+            result = p.a[0] & p.a[1] & p.a[2]
 
 ### MENU CODE ###
 
@@ -184,6 +206,40 @@ proc getNumber(prompt: string, min: int, max: int, implicitquit = true): Option[
 
         echo fmt"Invalid input '{choice}'"
 
+proc getPartID(prompt: string, t: PartitionType): Option[UnionPart_ID] =
+
+    if (t != TypeDOS) and (t != TypeAtari):
+        return # without return value
+
+    while true:
+        echo prompt & ":"
+
+        if t == TypeDOS:
+            stdout.write("[e.g. 0c, or Enter for FAT16] > ")
+        else:
+            stdout.write("[e.g. F32, or Enter for FAT16] > ")
+        stdout.flushFile()
+
+        let choice = readInputLine().strip()
+
+        if choice == "":
+            return # without return value
+
+        if t == TypeDOS:
+            try:
+                let number = choice.parseHexInt()
+                if (number > 0) and (number <= 255):
+                    return mkPartID(DOSPart_ID(number))
+            except:
+                discard
+
+        if t == TypeAtari:
+            if choice.len == 3:
+                let t: AtariPart_ID = [choice[0],choice[1],choice[2]]
+                return mkPartID(t)
+
+        echo fmt"Invalid input '{choice}'"
+
 ### DISK WRITE CODE ###
 
 const SectSize = 512
@@ -195,6 +251,7 @@ type
     Partition = object
         start: int
         length: int
+        partID: Option[UnionPart_ID] = none(UnionPart_ID)
 
 var zeroSector: Sector
 
@@ -292,7 +349,7 @@ type
     DOSPart {.packed.} = object
         bootable:   uint8 = 0
         chs_start:  array[3,uint8]
-        part_type:  uint8 = 0
+        part_id:    DOSPart_ID = 0
         chs_end:    array[3,uint8]
         lba_start:  uint32
         lba_size:   uint32
@@ -306,7 +363,7 @@ type
 
     AtariPart {.packed.} = object
         active:     uint8 = 0
-        part_type:  array[3,char]
+        part_id:    AtariPart_ID
         lba_start:  uint32
         lba_size:   uint32
 
@@ -336,14 +393,13 @@ func LBA2CHS(lba: int): array[3,uint8] =
     else:
         result = [0xff,0xff,0xff] # cannot be represented as CHS
 
-type
-    DOSPart_Type = uint8
-const
-    DOSPart_FAT16: DOSPart_Type = 0x06
-    DOSPart_Extended: DOSPart_Type = 0x05
 
-func fillDOSPart(p: var DOSPart, start: int, length: int, parttype = DOSPart_FAT16) =
-    p.part_type = parttype
+const
+    DOSPart_FAT16: DOSPart_ID = 0x06
+    DOSPart_Extended: DOSPart_ID = 0x05
+
+func fillDOSPart(p: var DOSPart, start: int, length: int, partID: Option[UnionPart_ID]) =
+    p.part_id = (if partID.isSome: partID.get().m else: DOSPart_FAT16)
     p.lba_start = uint32(start)
     p.lba_size = uint32(length)
     littleEndian32(addr p.lba_start, addr p.lba_start)
@@ -351,17 +407,16 @@ func fillDOSPart(p: var DOSPart, start: int, length: int, parttype = DOSPart_FAT
     p.chs_start = LBA2CHS(start)
     p.chs_end = LBA2CHS(start+length-1)
 
-type AtariPart_Type = array[3,char]
 const
-    AtariPart_FAT16: AtariPart_Type = ['B','G','M']
-    AtariPart_FAT16_small: AtariPart_Type = ['G','E','M']   # less than 16 MB
-    AtariPart_Extended: AtariPart_Type = ['X','G','M']
+    AtariPart_FAT16: AtariPart_ID = toArr("BGM")
+    AtariPart_FAT16_small: AtariPart_ID = toArr("GEM")   # less than 16 MB
+    AtariPart_Extended: AtariPart_ID = toArr("XGM")
 
-func fillAtariPart(p: var AtariPart, start: int, length: int, parttype = AtariPart_FAT16) =
+func fillAtariPart(p: var AtariPart, start: int, length: int, partID: Option[UnionPart_ID]) =
     p.active = 1
-    p.part_type = parttype
-    if (length < 16*SectPerMiB) and (parttype == AtariPart_FAT16):
-        p.part_type = AtariPart_FAT16_small
+    p.part_id = (if partID.isSome: partID.get().a else: AtariPart_FAT16)
+    if (length < 16*SectPerMiB) and (partID.isNone):
+        p.part_id = AtariPart_FAT16_small
 
     p.lba_start = uint32(start)
     p.lba_size = uint32(length)
@@ -386,11 +441,12 @@ proc createMBR(unit: int, parts: var openArray[Partition], diskSize: int, tos: O
         var m = DOSMBR()
         m.signature = rand(uint32)    # don't bother with endianness
         for k in 0 ..< numPrimary:
-            fillDOSPart(m.parttable[k], start=parts[k].start, length=parts[k].length)
+            fillDOSPart(m.parttable[k], start=parts[k].start, length=parts[k].length,
+                        partID = parts[k].partID)
         if doExtended:
             # spans the entire remaining length of the disk
             fillDOSPart(m.parttable[3], start=parts[3].start, length=diskSize - parts[3].start,
-                        parttype=DOSPart_Extended)
+                        partID=mkPartID(DOSPart_Extended))
 
         MBR = cast[Sector](m)
     else:
@@ -399,11 +455,12 @@ proc createMBR(unit: int, parts: var openArray[Partition], diskSize: int, tos: O
         m.disk_size = uint32(diskSize)
         bigEndian32(addr m.disk_size, addr m.disk_size)
         for k in 0 ..< numPrimary:
-            fillAtariPart(m.parttable[k], start=parts[k].start, length=parts[k].length)
+            fillAtariPart(m.parttable[k], start=parts[k].start, length=parts[k].length,
+                          partID = parts[k].partID)
         if doExtended:
             # spans the entire remaining length of the disk
             fillAtariPart(m.parttable[3], start=parts[3].start, length=diskSize - parts[3].start,
-                          parttype=AtariPart_Extended)
+                          partID=mkPartID(AtariPart_Extended))
 
         # calculate checksum so that MBR is NOT bootable
         let MBR2 = cast[array[256,uint16]](m)
@@ -434,13 +491,13 @@ proc createMBR(unit: int, parts: var openArray[Partition], diskSize: int, tos: O
                 var m = DOSMBR()
 
                 # start is relative to this boot record
-                fillDOSPart(m.parttable[0], start=1, length=parts[k].length)
+                fillDOSPart(m.parttable[0], start=1, length=parts[k].length, partID=parts[k].partID)
 
                 if k < numParts-1:
                     # another extended partition follows?
                     fillDOSPart(m.parttable[1], start=parts[k+1].start - extendedStart, # relative to the first extended boot record!
                                                 length=diskSize - parts[k+1].start, # spans remaining length of disk
-                                                parttype=DOSPart_Extended)
+                                                partID=mkPartID(DOSPart_Extended))
 
                 MBR = cast[Sector](m)
 
@@ -448,13 +505,13 @@ proc createMBR(unit: int, parts: var openArray[Partition], diskSize: int, tos: O
                 # Atari-style
                 var m = AtariMBR()
 
-                fillAtariPart(m.parttable[0], start=1, length=parts[k].length)
+                fillAtariPart(m.parttable[0], start=1, length=parts[k].length, partID=parts[k].partID)
 
                 if k < numParts-1:
                     # another extended partition follows?
                     fillAtariPart(m.parttable[1], start=parts[k+1].start - extendedStart, # relative to the first extended boot record!
                                                   length=diskSize - parts[k+1].start, # spans remaining length of disk
-                                                  parttype=AtariPart_Extended)
+                                                  partID=mkPartID(AtariPart_Extended))
 
                 MBR = cast[Sector](m)
 
@@ -740,7 +797,11 @@ for k in 1..numPart:
         # need to subtract two clusters to reach the absolute maximum size
         sizeSect = sizeSect - 128
 
-    let part = Partition(start: startPart, length: sizeSect)
+    var part = Partition(start: startPart, length: sizeSect)
+
+    if expertmode:
+        part.partID = getPartID("ID of " & partWord & " partition", t = partType)
+
     parts.add(part)
     startPart = startPart + sizeSect
 
@@ -756,8 +817,11 @@ stdout.flushFile()
 
 # Partiton the disk and create file systems
 createMBR(unit, parts, diskSize, tosType, swapBytes)
-for part in parts:
-    createFAT16(unit, part, tosType, swapBytes)
+for k, part in parts.pairs:
+    if part.partID.isNone:
+        createFAT16(unit, part, tosType, swapBytes)
+    else:
+        echo fmt"Not initializing custom partition #{k+1} (ID: {part.partID.get()})"
 
 echo "done!"
 
