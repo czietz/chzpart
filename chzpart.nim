@@ -212,7 +212,7 @@ proc getPartID(prompt: string, t: PartitionType): Option[UnionPart_ID] =
         return # without return value
 
     while true:
-        echo prompt & ":"
+        echo "\n" & prompt & ":"
 
         if t == TypeDOS:
             stdout.write("[e.g. 0c, or Enter for FAT16] > ")
@@ -776,17 +776,25 @@ let diskSize = getDiskSize(unit)
 var startPart = 1 # first sector is for MBR
 var parts: seq[Partition]
 for k in 1..numPart:
-    const partWords = ["1st","2nd","3rd"]
     const minSize = 5 # to avoid disks with less than 4085 clusters
+    const partWords = ["1st","2nd","3rd"]
+    let partWord = (if k <= 3: partWords[k-1] else: $k & "th")
+
+    var part = Partition()
+
+    if expertmode:
+        part.partID = getPartID("ID of " & partWord & " partition", t = partType)
 
     # maximum size for this partition
     var maxSize = ((diskSize - startPart) div SectPerMiB) - (minSize * (numPart-k))
-    if (partType == TypeAtari) and (maxSize > maxSizeTOS[tosType.get()]):
-        maxSize = maxSizeTOS[tosType.get()]
-    if (partType == TypeDOS) and (maxSize > 2047):
-        maxSize = 2047
 
-    let partWord = (if k <= 3: partWords[k-1] else: $k & "th")
+    # cap maximum size to FAT16 when the user did not enter a custom ID
+    if part.partID.isNone:
+        if (partType == TypeAtari) and (maxSize > maxSizeTOS[tosType.get()]):
+            maxSize = maxSizeTOS[tosType.get()]
+        if (partType == TypeDOS) and (maxSize > 2047):
+            maxSize = 2047
+
     let sizeChoice = getNumber("Size of " & partWord & " partition in MiB", minSize, maxSize)
     if sizeChoice.isNone:
         quit(1)
@@ -797,10 +805,8 @@ for k in 1..numPart:
         # need to subtract two clusters to reach the absolute maximum size
         sizeSect = sizeSect - 128
 
-    var part = Partition(start: startPart, length: sizeSect)
-
-    if expertmode:
-        part.partID = getPartID("ID of " & partWord & " partition", t = partType)
+    part.start = startPart
+    part.length = sizeSect
 
     parts.add(part)
     startPart = startPart + sizeSect
