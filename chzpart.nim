@@ -201,7 +201,7 @@ proc getNumber(prompt: string, min: int, max: int, implicitquit = true): Option[
             let number = choice.parseInt()
             if (number >= min) and (number <= max):
                 return some(number)
-        except:
+        except ValueError:
             discard
 
         echo fmt"Invalid input '{choice}'"
@@ -230,7 +230,7 @@ proc getPartID(prompt: string, t: PartitionType): Option[UnionPart_ID] =
                 let number = choice.parseHexInt()
                 if (number > 0) and (number <= 255):
                     return mkPartID(DOSPart_ID(number))
-            except:
+            except ValueError:
                 discard
 
         if t == TypeAtari:
