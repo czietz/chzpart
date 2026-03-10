@@ -679,6 +679,9 @@ type
 
 proc createFAT16(unit:int, part: Partition, tos: Option[TOSSupport], byteswap: bool) =
 
+    template partWrite(relativeSectNum: int, sectData: Sector) =
+        diskWrite(unit, relativeSectNum, sectData, byteswap, some(part))
+
     # whether to create Atari-compatible file system
     let atari = tos.isSome()
 
@@ -759,18 +762,18 @@ proc createFAT16(unit:int, part: Partition, tos: Option[TOSSupport], byteswap: b
     fat[1] = 0xff
     fat[2] = 0xff
     fat[3] = 0xff
-    diskWrite(unit, fat1start, fat, byteswap, some(part))
+    partWrite(fat1start, fat)
     for k in 1 ..< realfatsz:
-        diskWrite(unit, fat1start+k, zeroSector, byteswap, some(part))
+        partWrite(fat1start+k, zeroSector)
     if b.numfat == 2:
         rootdirstart = fat2start + realfatsz
-        diskWrite(unit, fat2start, fat, byteswap, some(part))
+        partWrite(fat2start, fat)
         for k in 1 ..< realfatsz:
-            diskWrite(unit, fat2start+k, zeroSector, byteswap,some(part))
+            partWrite(fat2start+k, zeroSector)
 
     # zero root directory
     for k in 0 ..< rootdirsect:
-        diskWrite(unit, rootdirstart+k, zeroSector, byteswap, some(part))
+        partWrite(rootdirstart+k, zeroSector)
 
     # convert all fields to littleEndian
     littleEndian16(addr b.bps, addr b.bps)
@@ -787,7 +790,7 @@ proc createFAT16(unit:int, part: Partition, tos: Option[TOSSupport], byteswap: b
 
     # write boot sectors
     let s = cast[Sector](b)
-    diskWrite(unit, 0, s, byteswap, some(part))
+    partWrite(0, s)
 
 ### MAIN FUNCTION CODE ###
 
