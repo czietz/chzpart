@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
       with:
         fetch-depth: 0
     - name: Install DEB packages
@@ -70,7 +70,7 @@ jobs:
         nim c --cpu:arm64 --outdir:dist/linux-arm64/ -d:release -d:strip chzpart.nim
         upx dist/68000/chzpart.tos
     - name: Save binaries as build artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: chzpart-temp-1
         retention-days: 1
@@ -84,7 +84,7 @@ jobs:
     runs-on: macos-latest
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
       with:
         fetch-depth: 0
     - name: Install Nim
@@ -98,7 +98,7 @@ jobs:
         mkdir -p dist/macos-arm64
         nim c --outdir:dist/macos-arm64/ -d:release -d:strip chzpart.nim
     - name: Save binaries as build artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: chzpart-temp-2
         retention-days: 1
@@ -111,7 +111,7 @@ jobs:
     runs-on: windows-latest
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
       with:
         fetch-depth: 0
     - name: Install Nim
@@ -127,7 +127,7 @@ jobs:
         mkdir -p dist/windows
         nim c --cc:vcc --outdir:dist/windows/ -d:release -d:lto -d:strip chzpart.nim
     - name: Save binaries as build artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: chzpart-temp-3
         retention-days: 1
@@ -141,8 +141,8 @@ jobs:
 
     steps:
 
-    - uses: actions/checkout@v4
-    - uses: actions/download-artifact@v5
+    - uses: actions/checkout@v6
+    - uses: actions/download-artifact@v6
       with:
         path: binaries
         merge-multiple: true
