@@ -281,8 +281,7 @@ else:   # not useDiskImage
         var blksize: culong
         var blocks: culong
         let retval = XHGetCapacity(cushort(unit), 0, addr blocks, addr blksize)
-        if (retval == 0) and (blocks > 0):
-            doAssert(blksize == SectSize, "only devices with 512 bytes per sector are supported")
+        if (retval == 0) and (blocks > 0) and (blksize == SectSize):
             result = int(blocks) * (int(blksize) div SectSize)
         else:
             result = 0
@@ -295,6 +294,8 @@ else:   # not useDiskImage
 
         let retval = XHInqTarget(cushort(unit), 0, addr blksize, addr flags, name.cstring)
         if (retval == 0) and (blksize > 0):
+            if blksize != SectSize:
+                echo fmt"Warning: Disk '{$(name.cstring)}': unsupported sector size {blksize}"
             return some($(name.cstring))
         else:
             return # none
