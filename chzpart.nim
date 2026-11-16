@@ -678,7 +678,7 @@ type
         filler:     array[448,uint8]
         magic:      array[2,uint8] = [0x55, 0xaa]
 
-proc createFAT16(unit:int, part: Partition, tos: Option[TOSSupport], byteswap: bool) =
+proc createFAT16(unit: int, part: Partition, tos: Option[TOSSupport], hdacsist: bool, byteswap: bool) =
 
     template partWrite(relativeSectNum: int, sectData: Sector) =
         diskWrite(unit, relativeSectNum, sectData, byteswap, some(part))
@@ -697,6 +697,8 @@ proc createFAT16(unit:int, part: Partition, tos: Option[TOSSupport], byteswap: b
                             of TOS104, TOS404:
                                 32766
                         )
+                      # to end up with less than 65536 sectors when HDACSIST calculates BPB
+                      elif hdacsist: 32766
                       else: 65524 # according to MS FAT spec
 
     while part.length div clustersize > maxclusters:
@@ -873,11 +875,12 @@ if unitChoice.isNone:
 let unit = unitChoice.get()
 
 # menu and mapping must be in the same order!
-let menu_mapping = [(TypeDOS, none(TOSSupport)), # 0
-                    (TypeAtari, some(TOS104)),   # 1
-                    (TypeAtari, some(TOS100)),   # 2
-                    (TypeAtari, some(TOS404)),   # 3
-                    (TypeGPT, none(TOSSupport))] # 4
+let menu_mapping = [(TypeDOS, none(TOSSupport), false), # 0
+                    (TypeAtari, some(TOS104), false),   # 1
+                    (TypeAtari, some(TOS100), false),   # 2
+                    (TypeAtari, some(TOS404), false),   # 3
+                    (TypeGPT, none(TOSSupport), false), # 4
+                    (TypeDOS, none(TOSSupport), true)]  # 5
 var menu_type = @[MenuItem(val: 0, key: 'M', text: "MS-DOS", help: "Compatible with EmuTOS, Windows, Linux, macOS"),
                   MenuItem(val: 1, key: 'A', text: "Atari TOS >= 1.04", help: "Compatible with EmuTOS, Atari TOS 1.04 and above"),
                   MenuItem(val: 2, key: 'B', text: "Atari TOS >= 1.00", help: "Compatible with EmuTOS, Atari TOS (all versions)"),
@@ -885,12 +888,13 @@ var menu_type = @[MenuItem(val: 0, key: 'M', text: "MS-DOS", help: "Compatible w
 
 if expertmode:
     menu_type.add(MenuItem(val: 4, key: 'G', text: "GUID Partition Table (GPT)", help: "Compatible with EmuTOS 1.5 and above, Windows, Linux, macOS"))
+    menu_type.add(MenuItem(val: 5, key: 'H', text: "HDACSIST", help: "Compatible with EmuTOS, HDACSIST driver, Windows, Linux, macOS"))
 
 let partChoice = displayMenu("Select partition type", menu_type)
 if partChoice.isNone:
     quit(1)
 
-let (partType,tosType) = menu_mapping[partChoice.get()]
+let (partType,tosType,hdAcsiST) = menu_mapping[partChoice.get()]
 
 # under EmuTOS one can control byte-swapping by the disk driver during XHReadWrite
 # ... so the byte-swapping is entirely under control of this program and one can
@@ -917,6 +921,9 @@ let diskSize = getDiskSize(unit)
 # Ask the user for partition sizes
 # MBR takes one sector, GPT takes 1 sector for MBR, one for GPT header, 32 for partition table
 var startPart = (if partType == TypeGPT: 2+GPTpartSects else: 1)
+if hdAcsiST:
+    startPart = 128     # allow room for driver installation
+
 # backup GPT takes 1 sector for header, 32 for partition table
 let endPart   = (if partType == TypeGPT: diskSize-GPTpartSects-1 else: diskSize) # non-inclusive!
 var parts: seq[Partition]
@@ -927,7 +934,7 @@ for k in 1..numPart:
 
     var part = Partition()
 
-    if expertmode:
+    if expertmode and not hdAcsiST:
         part.partID = getPartID("ID of " & partWord & " partition", t = partType)
 
     # maximum size for this partition
@@ -973,7 +980,7 @@ else:
     createGPT(unit, parts, diskSize, swapBytes)
 for k, part in parts.pairs:
     if part.partID.isNone:
-        createFAT16(unit, part, tosType, swapBytes)
+        createFAT16(unit, part, tosType, hdAcsiST, swapBytes)
     else:
         echo fmt"Not initializing custom partition #{k+1} (ID: {part.partID.get()})"
 
