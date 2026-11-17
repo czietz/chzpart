@@ -117,6 +117,14 @@ You can choose between:
     * macOS
   * Unless your use-case specifically requires a GUID Partition Table, you should prefer MS-DOS or Atari partitioning instead.
   * Only available in _expert mode_.
+* **HDACSIST compatible partitioning**
+  * Partitions the disk so that the free [HDACSIST driver](https://flab.se/hdacsist/) for Atari TOS can be installed.
+  * Also compatible with:
+    * EmuTOS
+    * Windows
+    * Linux
+    * macOS
+  * Only available in _expert mode_.
 
 Choose the type that best matches how the disk will be used.
 
